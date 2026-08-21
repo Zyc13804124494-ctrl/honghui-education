@@ -9,12 +9,13 @@ const sections = {
   students: { label: '学生管理', eyebrow: '学生档案', title: '学生管理', description: '查看当前机构的学生档案。' },
   homework: { label: '作业管理', eyebrow: '学习进度', title: '作业管理', description: '查看班级作业发布情况。' },
   corrections: { label: '批改记录', eyebrow: '教学反馈', title: '批改记录', description: '查看老师的作业批改记录。' },
-  attendance: { label: '考勤管理', eyebrow: '每日出勤', title: '考勤管理', description: '记录和查看班级每日出勤情况。' }
+  attendance: { label: '考勤管理', eyebrow: '每日出勤', title: '考勤管理', description: '记录和查看班级每日出勤情况。' },
+  fees: { label: '收费管理', eyebrow: '财务缴费', title: '收费管理', description: '查看和管理学生缴费记录。' }
 }
 
 const navigation = [
   ['home', '⌂'], ['campuses', '⌑'], ['classes', '▦'], ['teachers', '♧'],
-  ['students', '♙'], ['homework', '✓'], ['attendance', '◷'], ['corrections', '✎']
+  ['students', '♙'], ['homework', '✓'], ['attendance', '◷'], ['corrections', '✎'], ['fees', '¥']
 ]
 
 let activeSection = 'home'
@@ -151,11 +152,12 @@ async function loadSection() {
       teachers: ['organization_members', 'user_id, role, status, joined_at, profiles(real_name, phone)', 'joined_at'],
       students: ['students', 'id, student_no, real_name, gender, birthday, grade, school_name, status, campus_id, health_note, internal_note, created_at, campuses(name), student_class_enrollments(id, class_id, campus_id, start_date, is_current, classes(id, name, grade, school_year))', 'created_at'],
       homework: ['homework_assignments', 'id, title, subject, content, homework_date, due_date, status, campus_id, class_id, created_by, created_at, classes(name, campus_id), profiles:created_by(real_name)', 'homework_date'],
-      corrections: ['correction_records', 'id, correction_status, score, rating, corrected_at, reviewer_id, profiles(real_name)', 'corrected_at']
+      corrections: ['correction_records', 'id, correction_status, score, rating, corrected_at, reviewer_id, profiles(real_name)', 'corrected_at'],
+      fees: ['student_fee_records', 'id, amount, payment_date, due_date, status, note, recorded_by, created_at, students(real_name, student_no), campuses(name)', 'created_at']
     }
     const [table, columns, order] = queries[activeSection]
     const builder = supabase.from(table).select(columns)
-    if (table === 'organization_members' || table === 'students' || table === 'classes' || table === 'homework_assignments') builder.eq('organization_id', appContext.organization.id)
+    if (table === 'organization_members' || table === 'students' || table === 'classes' || table === 'homework_assignments' || table === 'student_fee_records') builder.eq('organization_id', appContext.organization.id)
     if (table === 'students') builder.is('deleted_at', null).neq('status', 'left')
     const { data, error } = await builder.order(order, { ascending: false })
     logSupabaseResult(`dashboard.${activeSection}`, data, error)
@@ -302,22 +304,45 @@ function renderList(rows) {
     teachers: { headers: ['教师', '角色', '邮箱 / 联系方式', '加入时间', '状态'], cells: (row) => [row.profiles?.real_name || '未设置姓名', roleLabel[row.role] || row.role, row.profiles?.phone || '未填写', formatDate(row.joined_at), statusBadge(row.status)] },
     students: { headers: ['学生姓名', '学号', '年级', '所属校区', '当前班级', '就读学校', '状态', '操作'], cells: (row) => { const enrollment = getCurrentEnrollment(row); return [row.real_name, row.student_no || '—', row.grade, row.campuses?.name || '—', enrollment?.classes?.name || '未分配', row.school_name || '未填写', statusBadge(row.status), `<div class="table-actions"><button class="secondary-button table-action" data-edit-student="${escapeHtml(row.id)}">编辑</button><button class="secondary-button table-action leave-action" data-leave-student="${escapeHtml(row.id)}">离校</button></div>`] } },
     homework: { headers: ['班级', '作业名称', '科目', '发布日期', '完成情况', '完成率', '状态'], cells: (row) => [row.classes?.name || '—', row.title, row.subject || '综合', formatDate(row.homework_date), `${row.stats?.completed || 0} / ${row.stats?.total || 0}`, `${row.stats?.rate || 0}%`, statusBadge(row.status)] },
-    corrections: { headers: ['批改状态', '评分', '评价', '批改老师', '批改时间'], cells: (row) => [statusBadge(row.correction_status), row.score ?? '—', row.rating || '未填写', row.profiles?.real_name || '未设置姓名', formatDate(row.corrected_at)] }
+    corrections: { headers: ['批改状态', '评分', '评价', '批改老师', '批改时间'], cells: (row) => [statusBadge(row.correction_status), row.score ?? '—', row.rating || '未填写', row.profiles?.real_name || '未设置姓名', formatDate(row.corrected_at)] },
+    fees: { headers: ['学生姓名', '校区', '缴费金额', '缴费日期', '到期日期', '状态', '操作'], cells: (row) => [row.students?.real_name || '未设置姓名', row.campuses?.name || '—', `¥${Number(row.amount).toFixed(2)}`, row.payment_date ? formatDate(row.payment_date) : '—', formatDate(row.due_date), paymentStatusBadge(row.status), `<div class="table-actions"><button class="secondary-button table-action" data-edit-fee="${escapeHtml(row.id)}">编辑</button></div>`] }
   }
   const table = config[activeSection]
-  const toolbarAction = activeSection === 'students' ? '<button class="primary-button" data-add-student>新增学生</button>' : activeSection === 'classes' ? '<button class="primary-button" data-add-class>新增班级</button>' : activeSection === 'homework' ? '<button class="primary-button" data-add-homework>新增作业</button>' : `<span class="read-only-tag">云端数据 · 只读列表</span>`
-  const tableRows = rows.map((row) => `<tr ${activeSection === 'homework' ? `class="clickable-row" data-homework-id="${escapeHtml(row.id)}"` : activeSection === 'students' ? `class="clickable-row" data-student-id="${escapeHtml(row.id)}"` : ''}>${table.cells(row).map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('')
-  target.innerHTML = `<div class="list-toolbar"><div><strong>${rows.length}</strong><span>条记录</span></div>${toolbarAction}</div><div class="data-table-wrap">${rows.length ? `<table class="data-table"><thead><tr>${table.headers.map((header) => `<th>${header}</th>`).join('')}</tr></thead><tbody>${tableRows}</tbody></table>` : `<div class="empty-state"><span class="empty-symbol">${icon('book')}</span><h3>还没有记录</h3><p>当前云端暂无${sections[activeSection].label}数据。</p></div>`}</div>`
+  const toolbarAction = activeSection === 'students' ? '<button class="primary-button" data-add-student>新增学生</button>' : activeSection === 'classes' ? '<button class="primary-button" data-add-class>新增班级</button>' : activeSection === 'homework' ? '<button class="primary-button" data-add-homework>新增作业</button>' : activeSection === 'fees' ? '<button class="primary-button" data-add-fee>新增收费</button>' : `<span class="read-only-tag">云端数据 · 只读列表</span>`
+  const searchBox = activeSection === 'students' ? '<input class="list-search" type="search" data-student-search placeholder="搜索姓名 / 学号" />' : ''
+  const renderTable = (visibleRows) => {
+    const tableRows = visibleRows.map((row) => `<tr ${activeSection === 'homework' ? `class="clickable-row" data-homework-id="${escapeHtml(row.id)}"` : activeSection === 'students' ? `class="clickable-row" data-student-id="${escapeHtml(row.id)}"` : ''}>${table.cells(row).map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('')
+    return `<div class="data-table-wrap">${visibleRows.length ? `<table class="data-table"><thead><tr>${table.headers.map((header) => `<th>${header}</th>`).join('')}</tr></thead><tbody>${tableRows}</tbody></table>` : `<div class="empty-state"><span class="empty-symbol">${icon('book')}</span><h3>${rows.length ? '没有匹配的学生' : '还没有记录'}</h3><p>${rows.length ? '请尝试其他搜索关键词。' : `当前云端暂无${sections[activeSection].label}数据。`}</p></div>`}</div>`
+  }
+  target.innerHTML = `<div class="list-toolbar"><div><strong>${rows.length}</strong><span>条记录</span></div>${searchBox}${toolbarAction}</div>${renderTable(rows)}`
   target.querySelector('[data-add-student]')?.addEventListener('click', () => openStudentForm())
   target.querySelector('[data-add-class]')?.addEventListener('click', () => openClassForm())
   target.querySelector('[data-add-homework]')?.addEventListener('click', () => openHomeworkForm())
-  target.querySelectorAll('[data-edit-student]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); openStudentForm(rows.find((row) => row.id === button.dataset.editStudent)) }))
-  target.querySelectorAll('[data-leave-student]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); markStudentLeft(button.dataset.leaveStudent) }))
-  target.querySelectorAll('[data-edit-class]').forEach((button) => button.addEventListener('click', () => openClassForm(rows.find((row) => row.id === button.dataset.editClass))))
-  target.querySelectorAll('[data-disable-class]').forEach((button) => button.addEventListener('click', () => disableClass(button.dataset.disableClass)))
-  target.querySelectorAll('[data-homework-id]').forEach((row) => row.addEventListener('click', () => openHomeworkDetail(rows.find((item) => item.id === row.dataset.homeworkId))))
-  target.querySelectorAll('[data-student-id]').forEach((row) => row.addEventListener('click', () => openStudentDetail(rows.find((item) => item.id === row.dataset.studentId))))
+  target.querySelector('[data-add-fee]')?.addEventListener('click', () => openFeeForm())
+  const bindTableEvents = (visibleRows) => {
+    target.querySelectorAll('[data-edit-student]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); openStudentForm(visibleRows.find((row) => row.id === button.dataset.editStudent)) }))
+    target.querySelectorAll('[data-leave-student]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); markStudentLeft(button.dataset.leaveStudent) }))
+    target.querySelectorAll('[data-edit-class]').forEach((button) => button.addEventListener('click', () => openClassForm(visibleRows.find((row) => row.id === button.dataset.editClass))))
+    target.querySelectorAll('[data-disable-class]').forEach((button) => button.addEventListener('click', () => disableClass(button.dataset.disableClass)))
+    target.querySelectorAll('[data-homework-id]').forEach((row) => row.addEventListener('click', () => openHomeworkDetail(visibleRows.find((item) => item.id === row.dataset.homeworkId))))
+    target.querySelectorAll('[data-student-id]').forEach((row) => row.addEventListener('click', () => openStudentDetail(visibleRows.find((item) => item.id === row.dataset.studentId))))
+    target.querySelectorAll('[data-edit-fee]').forEach((button) => button.addEventListener('click', () => openFeeForm(visibleRows.find((row) => row.id === button.dataset.editFee))))
+  }
+  bindTableEvents(rows)
+  const searchInput = target.querySelector('[data-student-search]')
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      const keyword = searchInput.value.trim().toLowerCase()
+      const visibleRows = keyword
+        ? rows.filter((row) => (row.real_name || '').toLowerCase().includes(keyword) || (row.student_no || '').toLowerCase().includes(keyword))
+        : rows
+      const tableWrap = target.querySelector('.data-table-wrap')
+      tableWrap.outerHTML = renderTable(visibleRows)
+      bindTableEvents(visibleRows)
+    })
+  }
 }
+
 
 async function openStudentDetail(student) {
   const modal = document.createElement('div')
@@ -706,6 +731,71 @@ function showToast(message, type = 'success') {
 function statusBadge(status) {
   const labels = { active: '正常', disabled: '已停用', archived: '已归档', pending: '待批改', corrected: '已批改', needs_revision: '需订正' }
   return `<span class="status-badge ${status || ''}"><i></i>${labels[status] || status || '—'}</span>`
+}
+
+const paymentStatusLabel = { unpaid: '未缴', paid: '已缴', partial: '部分', overdue: '逾期' }
+
+function paymentStatusBadge(status) {
+  return `<span class="status-badge payment-${status || ''}"><i></i>${paymentStatusLabel[status] || status || '—'}</span>`
+}
+
+async function openFeeForm(feeRecord = null) {
+  const isEditing = Boolean(feeRecord)
+  const modal = document.createElement('div')
+  modal.className = 'modal-backdrop'
+  modal.dataset.feeModal = 'true'
+  modal.dataset.feeId = feeRecord?.id || ''
+  modal.innerHTML = `<div class="modal"><div class="modal-heading"><div><p class="eyebrow">财务缴费</p><h2>${isEditing ? '编辑收费' : '新增收费'}</h2></div><button class="icon-button" type="button" title="关闭" data-close-fee-modal>×</button></div><div class="loading-state">正在读取学生...</div></div>`
+  document.body.append(modal)
+  modal.querySelector('[data-close-fee-modal]').addEventListener('click', () => modal.remove())
+  const { data: students, error } = await supabase.from('students').select('id, real_name, student_no, campus_id, campuses(name)').eq('organization_id', appContext.organization.id).is('deleted_at', null).neq('status', 'left').order('real_name')
+  logSupabaseResult('fees.form.students', students, error)
+  if (error) {
+    modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">财务缴费</p><h2>${isEditing ? '编辑收费' : '新增收费'}</h2></div><button class="icon-button" type="button" title="关闭" data-close-fee-modal>×</button></div><div class="error-state"><strong>无法读取学生</strong><p>${escapeHtml(error.message || '请稍后重试。')}</p></div>`
+    modal.querySelector('[data-close-fee-modal]').addEventListener('click', () => modal.remove())
+    return
+  }
+  const value = (field) => escapeHtml(feeRecord?.[field] ?? '')
+  modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">财务缴费</p><h2>${isEditing ? '编辑收费' : '新增收费'}</h2></div><button class="icon-button" type="button" title="关闭" data-close-fee-modal>×</button></div><form data-fee-form><div class="form-grid"><label>学生 <span>*</span><select name="student_id" required ${isEditing ? 'disabled' : ''}><option value="">请选择学生</option>${(students || []).map((student) => `<option value="${escapeHtml(student.id)}" ${feeRecord?.student_id === student.id ? 'selected' : ''}>${escapeHtml(student.real_name)}${student.student_no ? `（${escapeHtml(student.student_no)}）` : ''} · ${escapeHtml(student.campuses?.name || '未分配校区')}</option>`).join('')}</select></label><label>缴费金额 <span>*</span><input name="amount" type="number" min="0.01" step="0.01" required value="${value('amount')}" /></label><label>缴费日期<input name="payment_date" type="date" value="${value('payment_date')}" /></label><label>到期日期 <span>*</span><input name="due_date" type="date" required value="${value('due_date')}" /></label><label>缴费状态 <span>*</span><select name="status" required><option value="unpaid" ${(feeRecord?.status || 'unpaid') === 'unpaid' ? 'selected' : ''}>未缴</option><option value="paid" ${feeRecord?.status === 'paid' ? 'selected' : ''}>已缴</option><option value="partial" ${feeRecord?.status === 'partial' ? 'selected' : ''}>部分</option><option value="overdue" ${feeRecord?.status === 'overdue' ? 'selected' : ''}>逾期</option></select></label><label class="full-width">备注<textarea name="note" rows="3">${value('note')}</textarea></label></div><div class="form-error" data-fee-form-error></div><div class="modal-actions"><button class="secondary-button" type="button" data-close-fee-modal>取消</button><button class="primary-button" type="submit">保存收费</button></div></form>`
+  modal.querySelectorAll('[data-close-fee-modal]').forEach((button) => button.addEventListener('click', () => modal.remove()))
+  modal.querySelector('[data-fee-form]').addEventListener('submit', saveFee)
+}
+
+async function saveFee(event) {
+  event.preventDefault()
+  const formElement = event.currentTarget
+  const form = new FormData(formElement)
+  const modal = formElement.closest('[data-fee-modal]')
+  const feeId = modal.dataset.feeId
+  const button = formElement.querySelector('button[type="submit"]')
+  const errorTarget = formElement.querySelector('[data-fee-form-error]')
+  button.disabled = true
+  button.textContent = '保存中...'
+  errorTarget.textContent = ''
+  const studentId = form.get('student_id')
+  const student = (await supabase.from('students').select('campus_id').eq('id', studentId).single()).data
+  const payload = {
+    amount: Number(form.get('amount')),
+    payment_date: form.get('payment_date') || null,
+    due_date: form.get('due_date'),
+    status: form.get('status'),
+    note: form.get('note').trim() || null,
+    recorded_by: appContext.user.id
+  }
+  const query = feeId
+    ? supabase.from('student_fee_records').update(payload).eq('id', feeId).eq('organization_id', appContext.organization.id)
+    : supabase.from('student_fee_records').insert({ id: crypto.randomUUID(), organization_id: appContext.organization.id, campus_id: student?.campus_id, student_id: studentId, ...payload })
+  const { data, error } = await query
+  logSupabaseResult(feeId ? 'fees.update' : 'fees.create', data, error)
+  if (error) {
+    errorTarget.textContent = error.message || '保存失败，请稍后重试。'
+    button.disabled = false
+    button.textContent = '保存收费'
+    return
+  }
+  modal.remove()
+  showToast(feeId ? '收费记录保存成功' : '收费记录新增成功')
+  await loadSection()
 }
 
 supabase?.auth.onAuthStateChange((event, session) => {
