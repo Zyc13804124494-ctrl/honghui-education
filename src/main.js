@@ -19,10 +19,37 @@ const navigation = [
 
 let activeSection = 'home'
 let appContext = null
+let mobileMoreOpen = false
 
 const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]))
 const formatDate = (value) => value ? new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(value)) : '—'
 const roleLabel = { owner: '超级管理员', admin: '管理员', teacher: '老师' }
+
+// 统一权限矩阵：action -> 允许的角色
+// owner: 全部；admin: 业务管理；teacher: 仅查看自己班级、发布作业、操作考勤
+const permissionMatrix = {
+  manage_student: ['owner', 'admin'],
+  create_student: ['owner', 'admin'],
+  edit_student: ['owner', 'admin'],
+  leave_student: ['owner', 'admin'],
+  manage_class: ['owner', 'admin'],
+  create_class: ['owner', 'admin'],
+  edit_class: ['owner', 'admin'],
+  disable_class: ['owner', 'admin'],
+  archive_class: ['owner', 'admin'],
+  cleanup_class: ['owner', 'admin'],
+  delete_class: ['owner', 'admin'],
+  create_homework: ['owner', 'admin', 'teacher'],
+  delete_homework: ['owner', 'admin'],
+  manage_attendance: ['owner', 'admin', 'teacher'],
+  manage_settings: ['owner']
+}
+
+// 判断当前角色是否有权执行某操作（未登录一律拒绝）
+function can(action) {
+  const allowed = permissionMatrix[action]
+  return Array.isArray(allowed) && allowed.includes(appContext?.role)
+}
 
 function logSupabaseError(queryName, error) {
   if (!error) return
@@ -57,7 +84,6 @@ function icon(name) {
 function render() {
   if (!isSupabaseConfigured) return renderConfigError()
   if (!appContext) return renderLogin()
-  if (appContext.role !== 'owner' && appContext.role !== 'admin') return renderAccessDenied()
   document.querySelector('#app').innerHTML = shell()
   bindShellEvents()
   loadSection()
@@ -79,8 +105,29 @@ function renderAccessDenied() {
 
 function shell() {
   const profileName = appContext.profile?.real_name || appContext.user.email?.split('@')[0] || '鸿慧管理员'
-  return `<div class="admin-shell"><aside class="admin-sidebar"><div class="brand"><span class="brand-mark">${icon('logo')}</span><span>鸿慧教育</span></div><div class="workspace-label">管理平台</div><nav>${navigation.map(([key, symbol]) => `<button class="nav-item ${activeSection === key ? 'active' : ''}" data-section="${key}"><span class="nav-symbol">${symbol}</span><span>${sections[key].label}</span></button>`).join('')}</nav><div class="sidebar-foot"><div class="avatar">${escapeHtml(profileName[0])}</div><div class="sidebar-user"><strong>${escapeHtml(profileName)}</strong><small>${roleLabel[appContext.role]}</small></div><span class="online-dot"></span></div></aside><main class="admin-main"><header class="admin-topbar"><div class="mobile-brand"><span class="brand-mark">${icon('logo')}</span>鸿慧教育</div><div class="org-chip"><span class="status-dot"></span>${escapeHtml(appContext.organization.name)}</div><div class="topbar-user"><span>${escapeHtml(profileName)}</span><button class="icon-button" title="退出登录" data-logout>${icon('logout')}</button></div></header><section class="admin-content"><div class="page-heading"><div><p class="eyebrow">${sections[activeSection].eyebrow}</p><h1>${sections[activeSection].title}</h1><p class="muted">${sections[activeSection].description}</p></div><div class="page-date">${new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date())}</div></div><div id="section-content"></div></section></main></div>`
+  return `<div class="admin-shell"><aside class="admin-sidebar"><div class="brand"><span class="brand-mark">${icon('logo')}</span><span>鸿慧教育</span></div><div class="workspace-label">管理平台</div><nav>${navigation.map(([key, symbol]) => `<button class="nav-item ${activeSection === key ? 'active' : ''}" data-section="${key}"><span class="nav-symbol">${symbol}</span><span>${sections[key].label}</span></button>`).join('')}</nav><div class="sidebar-foot"><div class="avatar">${escapeHtml(profileName[0])}</div><div class="sidebar-user"><strong>${escapeHtml(profileName)}</strong><small>${roleLabel[appContext.role]}</small></div><span class="online-dot"></span></div></aside><main class="admin-main"><header class="admin-topbar"><div class="mobile-brand"><span class="brand-mark">${icon('logo')}</span>鸿慧教育</div><div class="org-chip"><span class="status-dot"></span>${escapeHtml(appContext.organization.name)}</div><div class="topbar-user"><span>${escapeHtml(profileName)}</span><button class="icon-button" title="退出登录" data-logout>${icon('logout')}</button></div></header><section class="admin-content"><div class="page-heading"><div><p class="eyebrow">${sections[activeSection].eyebrow}</p><h1>${sections[activeSection].title}</h1><p class="muted">${sections[activeSection].description}</p></div><div class="page-date">${new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date())}</div></div><div id="section-content"></div></section></main>${mobileNav()}</div>`
 }
+
+// 移动端底部导航（仅手机宽度显示）：主 Tab + 「更多」展开次要板块
+function mobileNav() {
+  const mainTabs = [
+    ['home', '⌂', '首页'],
+    ['students', '♙', '学生'],
+    ['classes', '▦', '班级'],
+    ['homework', '✓', '作业'],
+    ['attendance', '◷', '考勤']
+  ]
+  const moreSections = [
+    ['campuses', '⌑', '校区'],
+    ['teachers', '♧', '教师'],
+    ['corrections', '✎', '批改']
+  ]
+  const moreTabActive = moreSections.some(([key]) => key === activeSection)
+  return `
+    ${mobileMoreOpen ? `<div class="mobile-more-panel" data-mobile-more-panel>${moreSections.map(([key, symbol, label]) => `<button class="mobile-more-item ${activeSection === key ? 'active' : ''}" data-section="${key}"><span class="nav-symbol">${symbol}</span><span>${label}</span></button>`).join('')}</div>` : ''}
+    <nav class="mobile-tabbar">${mainTabs.map(([key, symbol, label]) => `<button class="mobile-tab ${activeSection === key ? 'active' : ''}" data-section="${key}"><span class="nav-symbol">${symbol}</span><span>${label}</span></button>`).join('')}<button class="mobile-tab ${moreTabActive || mobileMoreOpen ? 'active' : ''}" data-mobile-more><span class="nav-symbol">⋯</span><span>更多</span></button></nav>`
+}
+
 
 async function login(event) {
   event.preventDefault()
@@ -134,7 +181,8 @@ async function logout() {
 }
 
 function bindShellEvents() {
-  document.querySelectorAll('[data-section]').forEach((button) => button.addEventListener('click', () => { activeSection = button.dataset.section; render() }))
+  document.querySelectorAll('[data-section]').forEach((button) => button.addEventListener('click', () => { activeSection = button.dataset.section; mobileMoreOpen = false; render() }))
+  document.querySelectorAll('[data-mobile-more]').forEach((button) => button.addEventListener('click', () => { mobileMoreOpen = !mobileMoreOpen; render() }))
   document.querySelectorAll('[data-logout]').forEach((button) => button.addEventListener('click', logout))
 }
 
@@ -285,14 +333,14 @@ function renderList(rows) {
   const target = document.querySelector('#section-content')
   const config = {
     campuses: { headers: ['校区名称', '编码', '地址', '联系电话', '状态'], cells: (row) => [row.name, row.code, row.address || '未填写', row.contact_phone || '未填写', statusBadge(row.status)] },
-    classes: { headers: ['班级名称', '年级', '所属校区', '学年', '状态', '操作'], cells: (row) => { const isAdmin = appContext.role === 'owner' || appContext.role === 'admin'; return [row.name, row.grade, row.campuses?.name || '—', row.school_year, statusBadge(row.status), `<div class="table-actions"><button class="secondary-button table-action" data-edit-class="${escapeHtml(row.id)}">编辑</button>${row.status === 'disabled' ? '' : `<button class="secondary-button table-action leave-action" data-disable-class="${escapeHtml(row.id)}">停用</button>`}${row.status === 'archived' ? '' : `<button class="secondary-button table-action" data-archive-class="${escapeHtml(row.id)}">归档</button>`}${isAdmin ? `<button class="secondary-button table-action" data-cleanup-class="${escapeHtml(row.id)}">清理历史学生关系</button><button class="secondary-button table-action leave-action" data-delete-class="${escapeHtml(row.id)}">删除</button>` : ''}</div>`] } },
+    classes: { headers: ['班级名称', '年级', '所属校区', '学年', '状态', '操作'], cells: (row) => { const canEdit = can('edit_class'); const canDisable = can('disable_class'); const canArchive = can('archive_class'); const canCleanup = can('cleanup_class'); const canDelete = can('delete_class'); return [row.name, row.grade, row.campuses?.name || '—', row.school_year, statusBadge(row.status), `<div class="table-actions">${canEdit ? `<button class="secondary-button table-action" data-edit-class="${escapeHtml(row.id)}">编辑</button>` : ''}${canDisable && row.status !== 'disabled' ? `<button class="secondary-button table-action leave-action" data-disable-class="${escapeHtml(row.id)}">停用</button>` : ''}${canArchive && row.status !== 'archived' ? `<button class="secondary-button table-action" data-archive-class="${escapeHtml(row.id)}">归档</button>` : ''}${canCleanup ? `<button class="secondary-button table-action" data-cleanup-class="${escapeHtml(row.id)}">清理历史学生关系</button>` : ''}${canDelete ? `<button class="secondary-button table-action leave-action" data-delete-class="${escapeHtml(row.id)}">删除</button>` : ''}</div>`] } },
     teachers: { headers: ['教师', '角色', '邮箱 / 联系方式', '加入时间', '状态'], cells: (row) => [row.profiles?.real_name || '未设置姓名', roleLabel[row.role] || row.role, row.profiles?.phone || '未填写', formatDate(row.joined_at), statusBadge(row.status)] },
-    students: { headers: ['学生姓名', '学号', '年级', '所属校区', '当前班级', '就读学校', '状态', '操作'], cells: (row) => { const enrollment = getCurrentEnrollment(row); return [row.real_name, row.student_no || '—', row.grade, row.campuses?.name || '—', enrollment?.classes?.name || '未分配', row.school_name || '未填写', statusBadge(row.status), `<div class="table-actions"><button class="secondary-button table-action" data-edit-student="${escapeHtml(row.id)}">编辑</button><button class="secondary-button table-action leave-action" data-leave-student="${escapeHtml(row.id)}">离校</button></div>`] } },
-    homework: { headers: ['学生姓名', '学号', '作业名称', '科目', '发布日期', '完成状态', '状态', '操作'], cells: (row) => { const isAdmin = appContext.role === 'owner' || appContext.role === 'admin'; return [row.students?.real_name || '—', row.students?.student_no || '—', row.title, row.subject || '综合', formatDate(row.homework_date), completionStatusBadge(row.student_homework_records?.[0]?.completion_status), statusBadge(row.status), `<div class="table-actions"><button class="secondary-button table-action" data-view-homework="${escapeHtml(row.id)}">查看</button>${isAdmin ? `<button class="secondary-button table-action leave-action" data-delete-homework="${escapeHtml(row.id)}">删除</button>` : ''}</div>`] } },
+    students: { headers: ['学生姓名', '学号', '年级', '所属校区', '当前班级', '就读学校', '状态', '操作'], cells: (row) => { const enrollment = getCurrentEnrollment(row); const canEdit = can('edit_student'); const canLeave = can('leave_student'); return [row.real_name, row.student_no || '—', row.grade, row.campuses?.name || '—', enrollment?.classes?.name || '未分配', row.school_name || '未填写', statusBadge(row.status), `<div class="table-actions">${canEdit ? `<button class="secondary-button table-action" data-edit-student="${escapeHtml(row.id)}">编辑</button>` : ''}${canLeave ? `<button class="secondary-button table-action leave-action" data-leave-student="${escapeHtml(row.id)}">离校</button>` : ''}</div>`] } },
+    homework: { headers: ['学生姓名', '学号', '作业名称', '科目', '发布日期', '完成状态', '状态', '操作'], cells: (row) => { const canDelete = can('delete_homework'); return [row.students?.real_name || '—', row.students?.student_no || '—', row.title, row.subject || '综合', formatDate(row.homework_date), completionStatusBadge(row.student_homework_records?.[0]?.completion_status), statusBadge(row.status), `<div class="table-actions"><button class="secondary-button table-action" data-view-homework="${escapeHtml(row.id)}">查看</button>${canDelete ? `<button class="secondary-button table-action leave-action" data-delete-homework="${escapeHtml(row.id)}">删除</button>` : ''}</div>`] } },
     corrections: { headers: ['批改状态', '评分', '评价', '批改老师', '批改时间'], cells: (row) => [statusBadge(row.correction_status), row.score ?? '—', row.rating || '未填写', row.profiles?.real_name || '未设置姓名', formatDate(row.corrected_at)] }
   }
   const table = config[activeSection]
-  const toolbarAction = activeSection === 'students' ? '<button class="primary-button" data-add-student>新增学生</button>' : activeSection === 'classes' ? '<button class="primary-button" data-add-class>新增班级</button>' : activeSection === 'homework' ? '<button class="primary-button" data-add-homework>新增作业</button>' : `<span class="read-only-tag">云端数据 · 只读列表</span>`
+  const toolbarAction = (activeSection === 'students' && can('create_student')) ? '<button class="primary-button" data-add-student>新增学生</button>' : (activeSection === 'classes' && can('create_class')) ? '<button class="primary-button" data-add-class>新增班级</button>' : (activeSection === 'homework' && can('create_homework')) ? '<button class="primary-button" data-add-homework>新增作业</button>' : `<span class="read-only-tag">云端数据 · 只读列表</span>`
   const searchBox = activeSection === 'students' ? '<input class="list-search" type="search" data-student-search placeholder="搜索姓名 / 学号" />' : ''
   const renderTable = (visibleRows) => {
     const tableRows = visibleRows.map((row) => `<tr ${activeSection === 'homework' ? `class="clickable-row" data-homework-id="${escapeHtml(row.id)}"` : activeSection === 'students' ? `class="clickable-row" data-student-id="${escapeHtml(row.id)}"` : ''}>${table.cells(row).map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('')
