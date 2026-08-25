@@ -20,6 +20,7 @@ const navigation = [
 let activeSection = 'home'
 let appContext = null
 let mobileMoreOpen = false
+let teacherClassCache = []
 
 const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]))
 const formatDate = (value) => value ? new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(value)) : '—'
@@ -40,15 +41,31 @@ const permissionMatrix = {
   cleanup_class: ['owner', 'admin'],
   delete_class: ['owner', 'admin'],
   create_homework: ['owner', 'admin', 'teacher'],
+  correct_homework: ['owner', 'admin', 'teacher'],
   delete_homework: ['owner', 'admin'],
   manage_attendance: ['owner', 'admin', 'teacher'],
-  manage_settings: ['owner']
+  manage_settings: ['owner'],
+  manage_teacher: ['owner', 'admin']
 }
 
 // 判断当前角色是否有权执行某操作（未登录一律拒绝）
 function can(action) {
   const allowed = permissionMatrix[action]
   return Array.isArray(allowed) && allowed.includes(appContext?.role)
+}
+
+// 当前角色可见的板块集合（null = 全部）。teacher 隐藏校区管理、教师管理
+function visibleSectionKeys() {
+  if (appContext?.role === 'teacher') {
+    return new Set(['home', 'students', 'classes', 'homework', 'attendance', 'corrections'])
+  }
+  return null
+}
+
+// 判断某板块当前角色是否可见
+function sectionVisible(key) {
+  const set = visibleSectionKeys()
+  return set ? set.has(key) : true
 }
 
 function logSupabaseError(queryName, error) {
@@ -94,7 +111,7 @@ function renderConfigError() {
 }
 
 function renderLogin(error = '') {
-  document.querySelector('#app').innerHTML = `<div class="login-page"><div class="login-visual"><div class="brand brand-light"><span class="brand-mark">${icon('logo')}</span><span>鸿慧教育</span></div><div class="visual-copy"><p class="eyebrow">HONGHUI EDUCATION</p><h1>让每一次陪伴，<br/>都有清晰的成长记录。</h1><p>统一管理校区、班级与学生学习进度。</p></div><div class="visual-footer">站前校区 · 高新校区</div></div><div class="login-panel"><div class="login-form-wrap"><p class="eyebrow">管理平台</p><h2>欢迎回来</h2><p class="muted">使用鸿慧教育账号登录管理后台。</p>${error ? `<div class="error-banner">${escapeHtml(error)}</div>` : ''}<form data-login-form><label>邮箱<input name="email" type="email" autocomplete="email" required placeholder="请输入邮箱" /></label><label>密码<input name="password" type="password" autocomplete="current-password" required placeholder="请输入密码" /></label><button class="primary-button wide" type="submit">登录管理后台 ${icon('arrow')}</button></form><p class="login-hint">账号权限由鸿慧教育管理员统一管理</p></div></div></div>`
+  document.querySelector('#app').innerHTML = `<div class="login-page"><div class="login-visual"><div class="brand brand-light"><span class="brand-mark">${icon('logo')}</span><span>鸿慧教育</span></div><div class="visual-copy"><p class="eyebrow">HONGHUI EDUCATION</p><h1>让每一次陪伴，<br/>都有清晰的成长记录。</h1><p>统一管理校区、班级与学生学习进度。</p></div><div class="visual-footer">站前校区 · 高新校区</div></div><div class="login-panel"><div class="login-form-wrap"><p class="eyebrow">管理平台</p><h2>欢迎回来</h2><p class="muted">使用手机号和密码登录。</p>${error ? `<div class="error-banner">${escapeHtml(error)}</div>` : ''}<form data-login-form><label>手机号<input name="phone" type="tel" autocomplete="tel" required placeholder="请输入手机号" /></label><label>密码<input name="password" type="password" autocomplete="current-password" required placeholder="请输入密码" /></label><button class="primary-button wide" type="submit">登录管理后台 ${icon('arrow')}</button></form><p class="login-hint">账号权限由鸿慧教育管理员统一管理</p></div></div></div>`
   document.querySelector('[data-login-form]').addEventListener('submit', login)
 }
 
@@ -105,7 +122,7 @@ function renderAccessDenied() {
 
 function shell() {
   const profileName = appContext.profile?.real_name || appContext.user.email?.split('@')[0] || '鸿慧管理员'
-  return `<div class="admin-shell"><aside class="admin-sidebar"><div class="brand"><span class="brand-mark">${icon('logo')}</span><span>鸿慧教育</span></div><div class="workspace-label">管理平台</div><nav>${navigation.map(([key, symbol]) => `<button class="nav-item ${activeSection === key ? 'active' : ''}" data-section="${key}"><span class="nav-symbol">${symbol}</span><span>${sections[key].label}</span></button>`).join('')}</nav><div class="sidebar-foot"><div class="avatar">${escapeHtml(profileName[0])}</div><div class="sidebar-user"><strong>${escapeHtml(profileName)}</strong><small>${roleLabel[appContext.role]}</small></div><span class="online-dot"></span></div></aside><main class="admin-main"><header class="admin-topbar"><div class="mobile-brand"><span class="brand-mark">${icon('logo')}</span>鸿慧教育</div><div class="org-chip"><span class="status-dot"></span>${escapeHtml(appContext.organization.name)}</div><div class="topbar-user"><span>${escapeHtml(profileName)}</span><button class="icon-button" title="退出登录" data-logout>${icon('logout')}</button></div></header><section class="admin-content"><div class="page-heading"><div><p class="eyebrow">${sections[activeSection].eyebrow}</p><h1>${sections[activeSection].title}</h1><p class="muted">${sections[activeSection].description}</p></div><div class="page-date">${new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date())}</div></div><div id="section-content"></div></section></main>${mobileNav()}</div>`
+  return `<div class="admin-shell"><aside class="admin-sidebar"><div class="brand"><span class="brand-mark">${icon('logo')}</span><span>鸿慧教育</span></div><div class="workspace-label">管理平台</div><nav>${navigation.filter(([key]) => sectionVisible(key)).map(([key, symbol]) => `<button class="nav-item ${activeSection === key ? 'active' : ''}" data-section="${key}"><span class="nav-symbol">${symbol}</span><span>${sections[key].label}</span></button>`).join('')}</nav><div class="sidebar-foot"><div class="avatar">${escapeHtml(profileName[0])}</div><div class="sidebar-user"><strong>${escapeHtml(profileName)}</strong><small>${roleLabel[appContext.role]}</small></div><span class="online-dot"></span></div></aside><main class="admin-main"><header class="admin-topbar"><div class="mobile-brand"><span class="brand-mark">${icon('logo')}</span>鸿慧教育</div><div class="org-chip"><span class="status-dot"></span>${escapeHtml(appContext.organization.name)}</div><div class="topbar-user"><span>${escapeHtml(profileName)}</span><button class="icon-button" title="退出登录" data-logout>${icon('logout')}</button></div></header><section class="admin-content"><div class="page-heading"><div><p class="eyebrow">${sections[activeSection].eyebrow}</p><h1>${sections[activeSection].title}</h1><p class="muted">${sections[activeSection].description}</p></div><div class="page-date">${new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date())}</div></div><div id="section-content"></div></section></main>${mobileNav()}</div>`
 }
 
 // 移动端底部导航（仅手机宽度显示）：主 Tab + 「更多」展开次要板块
@@ -122,10 +139,12 @@ function mobileNav() {
     ['teachers', '♧', '教师'],
     ['corrections', '✎', '批改']
   ]
-  const moreTabActive = moreSections.some(([key]) => key === activeSection)
+  const visibleMain = mainTabs.filter(([key]) => sectionVisible(key))
+  const visibleMore = moreSections.filter(([key]) => sectionVisible(key))
+  const moreTabActive = visibleMore.some(([key]) => key === activeSection)
   return `
-    ${mobileMoreOpen ? `<div class="mobile-more-panel" data-mobile-more-panel>${moreSections.map(([key, symbol, label]) => `<button class="mobile-more-item ${activeSection === key ? 'active' : ''}" data-section="${key}"><span class="nav-symbol">${symbol}</span><span>${label}</span></button>`).join('')}</div>` : ''}
-    <nav class="mobile-tabbar">${mainTabs.map(([key, symbol, label]) => `<button class="mobile-tab ${activeSection === key ? 'active' : ''}" data-section="${key}"><span class="nav-symbol">${symbol}</span><span>${label}</span></button>`).join('')}<button class="mobile-tab ${moreTabActive || mobileMoreOpen ? 'active' : ''}" data-mobile-more><span class="nav-symbol">⋯</span><span>更多</span></button></nav>`
+    ${mobileMoreOpen && visibleMore.length ? `<div class="mobile-more-panel" data-mobile-more-panel>${visibleMore.map(([key, symbol, label]) => `<button class="mobile-more-item ${activeSection === key ? 'active' : ''}" data-section="${key}"><span class="nav-symbol">${symbol}</span><span>${label}</span></button>`).join('')}</div>` : ''}
+    <nav class="mobile-tabbar">${visibleMain.map(([key, symbol, label]) => `<button class="mobile-tab ${activeSection === key ? 'active' : ''}" data-section="${key}"><span class="nav-symbol">${symbol}</span><span>${label}</span></button>`).join('')}${visibleMore.length ? `<button class="mobile-tab ${moreTabActive || mobileMoreOpen ? 'active' : ''}" data-mobile-more><span class="nav-symbol">⋯</span><span>更多</span></button>` : ''}</nav>`
 }
 
 
@@ -135,10 +154,19 @@ async function login(event) {
   const button = event.currentTarget.querySelector('button')
   button.disabled = true
   button.textContent = '登录中...'
-  const { data, error } = await supabase.auth.signInWithPassword({ email: form.get('email'), password: form.get('password') })
+  // 手机号登录：先根据 profiles.phone 查 user_id，再取其真实 auth email 登录
+  const phone = String(form.get('phone') || '').trim()
+  const { data: loginData, error: fnErr } = await supabase.functions.invoke('login-email', { body: { phone } })
+  if (fnErr || !loginData?.email) {
+    button.disabled = false
+    button.textContent = '登录管理后台'
+    renderLogin('该手机号未注册，请检查后重试。')
+    return
+  }
+  const { data, error } = await supabase.auth.signInWithPassword({ email: loginData.email, password: form.get('password') })
   logSupabaseResult('auth.signInWithPassword', data, error)
   if (error) {
-    renderLogin('邮箱或密码错误，请检查后重试。')
+    renderLogin('手机号或密码错误，请检查后重试。')
     return
   }
   await loadCurrentUser()
@@ -191,24 +219,43 @@ async function loadSection() {
   if (!target) return
   target.innerHTML = '<div class="loading-state"><span class="loader"></span>正在读取云端数据...</div>'
   try {
-    if (activeSection === 'home') return renderHome(await getOverview())
-    if (activeSection === 'attendance') return renderAttendancePage()
+    if (!sectionVisible(activeSection)) {
+      activeSection = 'home'
+      return render()
+    }
+    if (activeSection === 'home') {
+      if (appContext.role === 'teacher') return renderTeacherHome(await getTeacherOverview())
+      return renderHome(await getOverview())
+    }
+    if (activeSection === 'attendance') {
+      if (appContext.role === 'teacher') return renderTeacherAttendancePage()
+      return renderAttendancePage()
+    }
+    if (activeSection === 'students' && appContext.role === 'teacher') return renderTeacherStudents()
     const queries = {
       campuses: ['campuses', 'id, name, code, address, contact_phone, status, created_at', 'created_at'],
       classes: ['classes', 'id, name, grade, school_year, status, campus_id, campuses(name)', 'created_at'],
       teachers: ['organization_members', 'user_id, role, status, joined_at, profiles(real_name, phone)', 'joined_at'],
       students: ['students', 'id, student_no, real_name, gender, birthday, grade, school_name, status, campus_id, health_note, internal_note, created_at, campuses(name), student_class_enrollments(id, class_id, campus_id, start_date, is_current, classes(id, name, grade, school_year))', 'created_at'],
-      homework: ['homework_assignments', 'id, title, subject, content, homework_date, due_date, status, campus_id, class_id, student_id, created_by, created_at, students(real_name, student_no), student_homework_records(completion_status), profiles:created_by(real_name)', 'homework_date'],
-      corrections: ['correction_records', 'id, correction_status, score, rating, corrected_at, reviewer_id, profiles(real_name)', 'corrected_at']
+      homework: ['homework_assignments', 'id, title, subject, content, homework_date, due_date, status, campus_id, class_id, student_id, created_by, created_at, students(real_name, student_no, status, deleted_at), student_homework_records(completion_status), profiles:created_by(real_name)', 'homework_date'],
+      corrections: ['correction_records', 'id, correction_status, score, rating, comment, corrected_at, reviewer_id, profiles(real_name), student_homework_records(id, completion_status, homework_assignments(id, title, subject, homework_date, students(real_name, student_no), classes(id, name, campus_id)))', 'corrected_at']
     }
     const [table, columns, order] = queries[activeSection]
     const builder = supabase.from(table).select(columns)
-    if (table === 'organization_members' || table === 'students' || table === 'classes' || table === 'homework_assignments') builder.eq('organization_id', appContext.organization.id)
+    if (table === 'organization_members' || table === 'students' || table === 'classes' || table === 'homework_assignments') {
+      builder.eq('organization_id', appContext.organization.id)
+      if (table === 'organization_members') builder.eq('role', 'teacher').neq('status', 'archived')
+    }
     if (table === 'students') builder.is('deleted_at', null).neq('status', 'left')
     const { data, error } = await builder.order(order, { ascending: false })
     logSupabaseResult(`dashboard.${activeSection}`, data, error)
     if (error) throw error
-    renderList(data || [])
+    // 作业列表仅显示当前在读学生的作业（离校学生的作业不进当前列表，历史可从批改记录页查看）
+    let rows = data || []
+    if (activeSection === 'homework') {
+      rows = rows.filter((row) => row.students?.status === 'active' && !row.students?.deleted_at)
+    }
+    renderList(rows)
   } catch (error) {
     target.innerHTML = `<div class="error-state"><strong>暂时无法读取数据</strong><p>${escapeHtml(error.message || '请检查网络连接或账号权限。')}</p><button class="secondary-button" data-retry>重新加载</button></div>`
     target.querySelector('[data-retry]').addEventListener('click', loadSection)
@@ -237,6 +284,192 @@ function renderHome(counts) {
 
 const attendanceStatusLabel = { present: '正常到校', late: '迟到', leave: '请假', absent: '缺勤' }
 const todayInputValue = () => new Date().toISOString().slice(0, 10)
+
+// ===== 老师工作台 =====
+// 获取老师负责的启用班级
+async function getTeacherClasses() {
+  if (appContext?.role !== 'teacher') return []
+  const { data, error } = await supabase
+    .from('class_teachers')
+    .select('class_id, classes(id, name, grade, school_year, campus_id, status, organization_id, campuses(id, name))')
+    .eq('teacher_id', appContext.user.id)
+    .eq('classes.status', 'active')
+  logSupabaseResult('teacher.classes', data, error)
+  if (error) return []
+  return (data || []).map((item) => item.classes).filter((c) => c)
+}
+
+// 老师工作台汇总数据（学生数、待批改、班级列表，均受 RLS 限定）
+async function getTeacherOverview() {
+  const classes = await getTeacherClasses()
+  const classIds = classes.map((c) => c.id)
+  const [{ count: totalStudents }, { count: pendingCorrections }] = await Promise.all([
+    supabase.from('students').select('*', { count: 'exact', head: true }).is('deleted_at', null).neq('status', 'left'),
+    classIds.length
+      ? supabase.from('correction_records').select('*', { count: 'exact', head: true }).eq('correction_status', 'pending')
+      : Promise.resolve({ count: 0 })
+  ])
+  return { classes, totalStudents: totalStudents || 0, pendingCorrections: pendingCorrections || 0 }
+}
+
+// 老师首页工作台
+function renderTeacherHome(data) {
+  const target = document.querySelector('#section-content')
+  const { classes = [], totalStudents = 0, pendingCorrections = 0 } = data || {}
+  const teacherName = appContext.profile?.real_name || '老师'
+  target.innerHTML = `
+    <div class="welcome-strip teacher-strip">
+      <div><span class="eyebrow">TEACHER WORKSPACE</span><h2>你好，${escapeHtml(teacherName)}</h2><p>今天也一起，把孩子们照顾好。</p></div>
+      <div class="welcome-badge">${icon('school')}<span>${classes.length} 个班级</span></div>
+    </div>
+    <div class="teacher-quick-grid">
+      <button class="teacher-quick-card quick-primary" data-section="attendance"><span class="overview-icon">◷</span><strong>今日考勤</strong><small>快速点名</small></button>
+      <button class="teacher-quick-card quick-green" data-teacher-homework><span class="overview-icon">✓</span><strong>发布作业</strong><small>布置今日作业</small></button>
+      <button class="teacher-quick-card quick-blue" data-section="students"><span class="overview-icon">♙</span><strong>查看学生</strong><small>我的班级学生</small></button>
+    </div>
+    <div class="teacher-stats">
+      <div><strong>${classes.length}</strong><span>我的班级</span></div>
+      <div><strong>${totalStudents}</strong><span>在读学生</span></div>
+      <button class="teacher-stat-link" data-section="corrections"><strong>${pendingCorrections}</strong><span>待批改</span></button>
+    </div>
+    <div class="panel teacher-classes-panel">
+      <div class="panel-heading"><div><p class="eyebrow">MY CLASSES</p><h3>我的班级</h3></div></div>
+      ${classes.length ? `<div class="teacher-class-list">${classes.map((c) => `<div class="teacher-class-row"><div class="teacher-class-avatar">${escapeHtml((c.name || '班')[0])}</div><div class="teacher-class-info"><strong>${escapeHtml(c.campuses?.name || '')} · ${escapeHtml(c.name)} · ${escapeHtml(c.grade || '')}</strong><small>${escapeHtml(c.school_year || '')}</small></div><button class="secondary-button table-action" data-teacher-class-attendance="${escapeHtml(c.id)}">点名</button></div>`).join('')}</div>` : '<div class="detail-empty">暂无任教班级，请联系管理员分配。</div>'}
+    </div>`
+  target.querySelectorAll('[data-section]').forEach((button) => button.addEventListener('click', () => { activeSection = button.dataset.section; mobileMoreOpen = false; render() }))
+  target.querySelectorAll('[data-teacher-homework]').forEach((button) => button.addEventListener('click', () => openTeacherHomeworkForm()))
+  target.querySelectorAll('[data-teacher-class-attendance]').forEach((button) => button.addEventListener('click', () => openTeacherClassAttendance(button.dataset.teacherClassAttendance)))
+}
+
+// 老师：直接打开指定班级的今日点名（移动优先卡片式）
+async function openTeacherClassAttendance(classId) {
+  activeSection = 'attendance'
+  await renderTeacherAttendancePage(classId)
+}
+
+// ===== 老师查看学生（卡片式，仅自己班级，含今日状态） =====
+async function renderTeacherStudents(classFilter = '') {
+  const target = document.querySelector('#section-content')
+  target.innerHTML = '<div class="loading-state"><span class="loader"></span>正在读取学生...</div>'
+  const classes = await getTeacherClasses()
+  if (!classes.length) {
+    target.innerHTML = '<div class="error-state"><strong>暂无任教班级</strong><p>请联系管理员分配班级。</p></div>'
+    return
+  }
+  const currentClass = classFilter || classes[0].id
+  const today = todayInputValue()
+  const classObj = classes.find((c) => c.id === currentClass) || {}
+  const [{ data: enrollments, error: enrollErr }, { data: records, error: recErr }] = await Promise.all([
+    supabase.from('student_class_enrollments').select('student_id, students(id, real_name, student_no, grade, campus_id, status, deleted_at)').eq('class_id', currentClass).eq('is_current', true),
+    supabase.from('student_attendance_records').select('student_id, status').eq('class_id', currentClass).eq('attendance_date', today)
+  ])
+  if (enrollErr || recErr) { target.innerHTML = '<div class="error-state"><strong>无法读取学生</strong><p>请稍后重试。</p></div>'; return }
+  const statusByStudent = Object.fromEntries((records || []).map((r) => [r.student_id, r.status]))
+  const students = (enrollments || []).map((item) => item.students).filter((s) => s?.status === 'active' && !s.deleted_at)
+  target.innerHTML = `
+    <div class="teacher-attend-toolbar">
+      <label>班级<select data-teacher-student-class></select></label>
+      <label>今日状态说明<span class="muted small">仅显示已登记</span></label>
+    </div>
+    <div class="teacher-class-list teacher-student-list">
+      ${students.length ? students.map((s) => { const todayStatus = statusByStudent[s.id]; return `<div class="teacher-class-row teacher-student-card"><div class="teacher-student-avatar">${escapeHtml((s.real_name || '学')[0])}</div><div class="teacher-class-info"><strong>${escapeHtml(s.real_name)}</strong><small>${escapeHtml(s.grade || '')}${s.student_no ? ` · 学号 ${escapeHtml(s.student_no)}` : ''}</small></div><span class="attendance-status ${todayStatus || 'empty'}">${todayStatus ? (attendanceStatusLabel[todayStatus] || todayStatus) : '未登记'}</span></div>` }).join('') : '<div class="detail-empty">该班级暂无在读学生</div>'}
+    </div>`
+  const classSelect = target.querySelector('[data-teacher-student-class]')
+  classSelect.innerHTML = classes.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === currentClass ? 'selected' : ''}>${escapeHtml(c.campuses?.name || '')} · ${escapeHtml(c.name)} · ${escapeHtml(c.grade || '')}</option>`).join('')
+  classSelect.addEventListener('change', () => renderTeacherStudents(classSelect.value))
+}
+
+
+
+
+
+// ===== 老师今日考勤（移动优先 · 卡片式快速点名） =====
+async function renderTeacherAttendancePage(defaultClassId = '') {
+  const target = document.querySelector('#section-content')
+  target.innerHTML = '<div class="loading-state"><span class="loader"></span>正在读取考勤...</div>'
+  const classes = await getTeacherClasses()
+  teacherClassCache = classes
+  if (!classes.length) {
+    target.innerHTML = '<div class="error-state"><strong>暂无任教班级</strong><p>请联系管理员分配班级后再点名。</p></div>'
+    return
+  }
+  const selectedClassId = defaultClassId || classes[0].id
+  target.innerHTML = `
+    <div class="teacher-attend-toolbar">
+      <label>班级<select data-teacher-attend-class></select></label>
+      <label>日期<input type="date" data-teacher-attend-date /></label>
+    </div>
+    <div class="teacher-attend-hint" data-teacher-attend-hint>点击下方状态按钮标记，点底部「保存」即可完成今日点名。</div>
+    <div class="teacher-attend-list" data-teacher-attend-list></div>
+    <div class="teacher-attend-save"><button class="primary-button wide" data-teacher-attend-save>保存当天考勤</button></div>`
+  const classSelect = target.querySelector('[data-teacher-attend-class]')
+  classSelect.innerHTML = classes.map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === selectedClassId ? 'selected' : ''}>${escapeHtml(c.campuses?.name || '')} · ${escapeHtml(c.name)} · ${escapeHtml(c.grade || '')}</option>`).join('')
+  const dateInput = target.querySelector('[data-teacher-attend-date]')
+  dateInput.value = todayInputValue()
+  const reload = () => { const cid = classSelect.value; const d = dateInput.value; if (cid) loadTeacherAttendRoster(target, cid, d) }
+  classSelect.addEventListener('change', reload)
+  dateInput.addEventListener('change', reload)
+  target.querySelector('[data-teacher-attend-save]').addEventListener('click', () => saveTeacherAttendance(target))
+  await loadTeacherAttendRoster(target, selectedClassId, dateInput.value)
+}
+
+async function loadTeacherAttendRoster(target, classId, date) {
+  const listEl = target.querySelector('[data-teacher-attend-list]')
+  if (!listEl) return
+  listEl.innerHTML = '<div class="loading-state">正在读取学生...</div>'
+  const className = (() => { const opt = target.querySelector('[data-teacher-attend-class] option:checked') || {}; return opt.textContent || '' })()
+  const [{ data: enrollments, error: enrollErr }, { data: records, error: recErr }] = await Promise.all([
+    supabase.from('student_class_enrollments').select('student_id, students(id, real_name, student_no, grade, status, deleted_at)').eq('class_id', classId).eq('is_current', true),
+    supabase.from('student_attendance_records').select('id, student_id, status').eq('class_id', classId).eq('attendance_date', date)
+  ])
+  if (enrollErr || recErr) { listEl.innerHTML = '<div class="error-state"><strong>无法读取名单</strong><p>请检查网络后重试。</p></div>'; return }
+  const students = (enrollments || []).map((item) => item.students).filter((s) => s?.status === 'active' && !s.deleted_at)
+  const recordByStudent = Object.fromEntries((records || []).map((r) => [r.student_id, r]))
+  listEl.dataset.classId = classId
+  listEl.dataset.date = date
+  if (!students.length) { listEl.innerHTML = '<div class="empty-state">该班级暂无在读学生</div>'; return }
+  const statusBtn = (status, current) => `<button type="button" class="att-btn ${status} ${current === status ? 'active' : ''}" data-att-set="${status}">${attendanceStatusLabel[status] || status}</button>`
+  listEl.innerHTML = `
+    <div class="teacher-attend-head"><div><strong>${escapeHtml(className)}</strong><span>${students.length} 名学生</span></div><button class="secondary-button" type="button" data-att-all-present>全体到校</button></div>
+    <div class="teacher-attend-cards">${students.map((s) => { const rec = recordByStudent[s.id]; const current = rec?.status || 'present'; return `<div class="teacher-attend-card" data-att-student="${escapeHtml(s.id)}" data-att-status="${current}"><div class="teacher-student-avatar">${escapeHtml((s.real_name || '学')[0])}</div><div class="teacher-student-meta"><strong>${escapeHtml(s.real_name)}</strong><small>${escapeHtml(s.grade || '')}${s.student_no ? ` · ${escapeHtml(s.student_no)}` : ''}</small></div><div class="att-btn-group">${['present', 'late', 'leave', 'absent'].map((st) => statusBtn(st, current)).join('')}</div></div>` }).join('')}</div>`
+  listEl.querySelector('[data-att-all-present]')?.addEventListener('click', () => listEl.querySelectorAll('[data-att-student]').forEach((card) => setTeacherAttStatus(card, 'present')))
+  listEl.querySelectorAll('[data-att-student]').forEach((card) => card.querySelectorAll('[data-att-set]').forEach((btn) => btn.addEventListener('click', () => setTeacherAttStatus(card, btn.dataset.attSet))))
+}
+
+
+function setTeacherAttStatus(card, status) {
+  card.dataset.attStatus = status
+  card.querySelectorAll('[data-att-set]').forEach((btn) => btn.classList.toggle('active', btn.dataset.attSet === status))
+}
+
+async function saveTeacherAttendance(target) {
+  const listEl = target.querySelector('[data-teacher-attend-list]')
+  if (!listEl) return
+  const classId = listEl.dataset.classId
+  const date = listEl.dataset.date
+  const classObj = teacherClassCache.find((c) => c.id === classId) || {}
+  const cards = listEl.querySelectorAll('[data-att-student]')
+  if (!cards.length) return
+  const button = target.querySelector('[data-teacher-attend-save]')
+  button.disabled = true
+  button.textContent = '保存中...'
+  const { data: existing } = await supabase.from('student_attendance_records').select('id, student_id').eq('class_id', classId).eq('attendance_date', date)
+  const existingById = Object.fromEntries((existing || []).map((r) => [r.student_id, r.id]))
+  const operations = Array.from(cards).map((card) => {
+    const studentId = card.dataset.attStudent
+    const status = card.dataset.attStatus || 'present'
+    const payload = { status, recorded_by: appContext.user.id }
+    if (existingById[studentId]) return supabase.from('student_attendance_records').update(payload).eq('id', existingById[studentId])
+    return supabase.from('student_attendance_records').insert({ id: crypto.randomUUID(), organization_id: appContext.organization.id, campus_id: classObj.campus_id, class_id: classId, student_id: studentId, attendance_date: date, ...payload })
+  })
+  const results = await Promise.all(operations)
+  const error = results.find((r) => r.error)?.error
+  button.disabled = false
+  button.textContent = '保存当天考勤'
+  if (error) { showToast(error.message || '考勤保存失败，请稍后重试。', 'error'); return }
+  showToast('当天考勤保存成功')
+}
+
 
 async function renderAttendancePage() {
   const target = document.querySelector('#section-content')
@@ -334,23 +567,44 @@ function renderList(rows) {
   const config = {
     campuses: { headers: ['校区名称', '编码', '地址', '联系电话', '状态'], cells: (row) => [row.name, row.code, row.address || '未填写', row.contact_phone || '未填写', statusBadge(row.status)] },
     classes: { headers: ['班级名称', '年级', '所属校区', '学年', '状态', '操作'], cells: (row) => { const canEdit = can('edit_class'); const canDisable = can('disable_class'); const canArchive = can('archive_class'); const canCleanup = can('cleanup_class'); const canDelete = can('delete_class'); return [row.name, row.grade, row.campuses?.name || '—', row.school_year, statusBadge(row.status), `<div class="table-actions">${canEdit ? `<button class="secondary-button table-action" data-edit-class="${escapeHtml(row.id)}">编辑</button>` : ''}${canDisable && row.status !== 'disabled' ? `<button class="secondary-button table-action leave-action" data-disable-class="${escapeHtml(row.id)}">停用</button>` : ''}${canArchive && row.status !== 'archived' ? `<button class="secondary-button table-action" data-archive-class="${escapeHtml(row.id)}">归档</button>` : ''}${canCleanup ? `<button class="secondary-button table-action" data-cleanup-class="${escapeHtml(row.id)}">清理历史学生关系</button>` : ''}${canDelete ? `<button class="secondary-button table-action leave-action" data-delete-class="${escapeHtml(row.id)}">删除</button>` : ''}</div>`] } },
-    teachers: { headers: ['教师', '角色', '邮箱 / 联系方式', '加入时间', '状态'], cells: (row) => [row.profiles?.real_name || '未设置姓名', roleLabel[row.role] || row.role, row.profiles?.phone || '未填写', formatDate(row.joined_at), statusBadge(row.status)] },
+    teachers: { headers: ['教师', '手机号', '状态', '加入时间', '操作'], cells: (row) => { const canManage = can('manage_teacher'); const memStatus = row.status; return [row.profiles?.real_name || '未设置姓名', row.profiles?.phone || '未填写', statusBadge(row.status), formatDate(row.joined_at), canManage ? `<div class="table-actions"><button class="secondary-button table-action" data-edit-teacher="${escapeHtml(row.id)}" data-teacher-user="${escapeHtml(row.user_id)}">编辑</button>${memStatus === 'disabled' ? `<button class="secondary-button table-action" data-toggle-teacher="${escapeHtml(row.id)}" data-to="active">启用</button>` : `<button class="secondary-button table-action leave-action" data-toggle-teacher="${escapeHtml(row.id)}" data-to="disabled">停用</button>`}<button class="secondary-button table-action leave-action" data-delete-teacher="${escapeHtml(row.id)}" data-teacher-user="${escapeHtml(row.user_id)}">删除</button></div>` : ''] } },
     students: { headers: ['学生姓名', '学号', '年级', '所属校区', '当前班级', '就读学校', '状态', '操作'], cells: (row) => { const enrollment = getCurrentEnrollment(row); const canEdit = can('edit_student'); const canLeave = can('leave_student'); return [row.real_name, row.student_no || '—', row.grade, row.campuses?.name || '—', enrollment?.classes?.name || '未分配', row.school_name || '未填写', statusBadge(row.status), `<div class="table-actions">${canEdit ? `<button class="secondary-button table-action" data-edit-student="${escapeHtml(row.id)}">编辑</button>` : ''}${canLeave ? `<button class="secondary-button table-action leave-action" data-leave-student="${escapeHtml(row.id)}">离校</button>` : ''}</div>`] } },
     homework: { headers: ['学生姓名', '学号', '作业名称', '科目', '发布日期', '完成状态', '状态', '操作'], cells: (row) => { const canDelete = can('delete_homework'); return [row.students?.real_name || '—', row.students?.student_no || '—', row.title, row.subject || '综合', formatDate(row.homework_date), completionStatusBadge(row.student_homework_records?.[0]?.completion_status), statusBadge(row.status), `<div class="table-actions"><button class="secondary-button table-action" data-view-homework="${escapeHtml(row.id)}">查看</button>${canDelete ? `<button class="secondary-button table-action leave-action" data-delete-homework="${escapeHtml(row.id)}">删除</button>` : ''}</div>`] } },
-    corrections: { headers: ['批改状态', '评分', '评价', '批改老师', '批改时间'], cells: (row) => [statusBadge(row.correction_status), row.score ?? '—', row.rating || '未填写', row.profiles?.real_name || '未设置姓名', formatDate(row.corrected_at)] }
+    corrections: { headers: ['作业', '学生', '批改状态', '评分', '评价', '批改老师', '批改时间', '操作'], cells: (row) => { const shr = row.student_homework_records; const hw = shr?.homework_assignments; const canCorrect = can('correct_homework'); return [hw?.title || '—', hw?.students?.real_name || '—', statusBadge(row.correction_status), row.score ?? '—', row.rating || '未填写', row.profiles?.real_name || '未设置姓名', formatDate(row.corrected_at), canCorrect ? `<div class="table-actions"><button class="secondary-button table-action" data-edit-correction="${escapeHtml(row.id)}" data-record-id="${escapeHtml(shr?.id || '')}">${row.correction_status === 'pending' ? '去批改' : '编辑'}</button></div>` : ''] } },
   }
   const table = config[activeSection]
-  const toolbarAction = (activeSection === 'students' && can('create_student')) ? '<button class="primary-button" data-add-student>新增学生</button>' : (activeSection === 'classes' && can('create_class')) ? '<button class="primary-button" data-add-class>新增班级</button>' : (activeSection === 'homework' && can('create_homework')) ? '<button class="primary-button" data-add-homework>新增作业</button>' : `<span class="read-only-tag">云端数据 · 只读列表</span>`
+  const toolbarAction = (activeSection === 'students' && can('create_student')) ? '<button class="primary-button" data-add-student>新增学生</button>' : (activeSection === 'classes' && can('create_class')) ? '<button class="primary-button" data-add-class>新增班级</button>' : (activeSection === 'homework' && can('create_homework')) ? '<button class="primary-button" data-add-homework>新增作业</button>' : (activeSection === 'teachers' && can('manage_teacher')) ? '<button class="primary-button" data-add-teacher>新增教师</button>' : `<span class="read-only-tag">云端数据 · 只读列表</span>`
   const searchBox = activeSection === 'students' ? '<input class="list-search" type="search" data-student-search placeholder="搜索姓名 / 学号" />' : ''
-  const renderTable = (visibleRows) => {
-    const tableRows = visibleRows.map((row) => `<tr ${activeSection === 'homework' ? `class="clickable-row" data-homework-id="${escapeHtml(row.id)}"` : activeSection === 'students' ? `class="clickable-row" data-student-id="${escapeHtml(row.id)}"` : ''}>${table.cells(row).map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('')
-    return `<div class="data-table-wrap">${visibleRows.length ? `<table class="data-table"><thead><tr>${table.headers.map((header) => `<th>${header}</th>`).join('')}</tr></thead><tbody>${tableRows}</tbody></table>` : `<div class="empty-state"><span class="empty-symbol">${icon('book')}</span><h3>${rows.length ? '没有匹配的学生' : '还没有记录'}</h3><p>${rows.length ? '请尝试其他搜索关键词。' : `当前云端暂无${sections[activeSection].label}数据。`}</p></div>`}</div>`
+  const PAGE_SIZE = 50
+  let filteredRows = rows.slice()
+  let currentPage = 1
+  let correctionsFilter = 'all'
+
+  const paginate = (list, page) => {
+    const total = list.length
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+    const p = Math.min(Math.max(1, page), totalPages)
+    const start = (p - 1) * PAGE_SIZE
+    return { pageRows: list.slice(start, start + PAGE_SIZE), totalPages, page: p }
   }
-  target.innerHTML = `<div class="list-toolbar"><div><strong>${rows.length}</strong><span>条记录</span></div>${searchBox}${toolbarAction}</div>${renderTable(rows)}`
-  target.querySelector('[data-add-student]')?.addEventListener('click', () => openStudentForm())
-  target.querySelector('[data-add-class]')?.addEventListener('click', () => openClassForm())
-  target.querySelector('[data-add-homework]')?.addEventListener('click', () => openHomeworkForm())
-  const bindTableEvents = (visibleRows) => {
+  const renderTable = (list, page) => {
+    const { pageRows, totalPages, page: p } = paginate(list, page)
+    const tableRows = pageRows.map((row) => `<tr ${activeSection === 'homework' ? `class="clickable-row" data-homework-id="${escapeHtml(row.id)}"` : activeSection === 'students' ? `class="clickable-row" data-student-id="${escapeHtml(row.id)}"` : ''}>${table.cells(row).map((cell) => `<td>${cell}</td>`).join('')}</tr>`).join('')
+    const bodyHtml = pageRows.length ? `<table class="data-table"><thead><tr>${table.headers.map((header) => `<th>${header}</th>`).join('')}</tr></thead><tbody>${tableRows}</tbody></table>` : `<div class="empty-state"><span class="empty-symbol">${icon('book')}</span><h3>${list.length ? '没有匹配的记录' : '还没有记录'}</h3><p>${list.length ? '请尝试其他筛选或关键词。' : `当前云端暂无${sections[activeSection].label}数据。`}</p></div>`
+    const pageBar = totalPages > 1 ? `<div class="pagination"><button type="button" class="page-btn" data-page="${p - 1}" ${p <= 1 ? 'disabled' : ''}>上一页</button><span class="page-info">第 ${p} / ${totalPages} 页 · ${list.length} 条</span><button type="button" class="page-btn" data-page="${p + 1}" ${p >= totalPages ? 'disabled' : ''}>下一页</button></div>` : ''
+    return `<div class="data-table-wrap">${bodyHtml}${pageBar}</div>`
+  }
+  const applyTable = (list, page) => {
+    const { pageRows } = paginate(list, page)
+    const wrap = target.querySelector('.data-table-wrap')
+    if (wrap) wrap.outerHTML = renderTable(list, page)
+    bindRowEvents(pageRows)
+    target.querySelectorAll('[data-page]').forEach((btn) => btn.addEventListener('click', () => {
+      if (btn.disabled) return
+      applyTable(filteredRows, Number(btn.dataset.page))
+    }))
+  }
+  const bindRowEvents = (visibleRows) => {
     target.querySelectorAll('[data-edit-student]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); openStudentForm(visibleRows.find((row) => row.id === button.dataset.editStudent)) }))
     target.querySelectorAll('[data-leave-student]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); markStudentLeft(button.dataset.leaveStudent) }))
     target.querySelectorAll('[data-edit-class]').forEach((button) => button.addEventListener('click', () => openClassForm(visibleRows.find((row) => row.id === button.dataset.editClass))))
@@ -361,19 +615,31 @@ function renderList(rows) {
     target.querySelectorAll('[data-homework-id]').forEach((row) => row.addEventListener('click', () => openHomeworkDetail(visibleRows.find((item) => item.id === row.dataset.homeworkId))))
     target.querySelectorAll('[data-view-homework]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); openHomeworkDetail(visibleRows.find((item) => item.id === button.dataset.viewHomework)) }))
     target.querySelectorAll('[data-delete-homework]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); deleteHomework(button.dataset.deleteHomework) }))
+    target.querySelectorAll('[data-edit-correction]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); openCorrectionPanel(button.dataset.recordId, button.dataset.editCorrection) }))
+    target.querySelectorAll('[data-edit-teacher]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); openTeacherEdit(visibleRows.find((row) => row.id === button.dataset.editTeacher)) }))
+    target.querySelectorAll('[data-toggle-teacher]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); toggleTeacherStatus(button.dataset.toggleTeacher, button.dataset.to) }))
+    target.querySelectorAll('[data-delete-teacher]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); softDeleteTeacher(button.dataset.deleteTeacher) }))
     target.querySelectorAll('[data-student-id]').forEach((row) => row.addEventListener('click', () => openStudentDetail(visibleRows.find((item) => item.id === row.dataset.studentId))))
   }
-  bindTableEvents(rows)
+  const correctionFilterBar = activeSection === 'corrections' ? `<div class="filter-tabs">${[['all', '全部'], ['pending', '待批改'], ['corrected', '已批改'], ['needs_revision', '需订正']].map(([key, label]) => `<button type="button" class="filter-tab ${correctionsFilter === key ? 'active' : ''}" data-correction-filter="${key}">${label}</button>`).join('')}</div>` : ''
+  target.innerHTML = `<div class="list-toolbar"><div><strong>${rows.length}</strong><span>条记录</span></div>${searchBox}${toolbarAction}</div>${correctionFilterBar}${renderTable(filteredRows, 1)}`
+  target.querySelector('[data-add-student]')?.addEventListener('click', () => openStudentForm())
+  target.querySelector('[data-add-class]')?.addEventListener('click', () => openClassForm())
+  target.querySelector('[data-add-homework]')?.addEventListener('click', () => { if (appContext.role === 'teacher') { openTeacherHomeworkForm() } else { openHomeworkForm() } })
+  target.querySelector('[data-add-teacher]')?.addEventListener('click', () => openTeacherForm())
+  applyTable(filteredRows, 1)
+  target.querySelectorAll('[data-correction-filter]').forEach((btn) => btn.addEventListener('click', () => {
+    correctionsFilter = btn.dataset.correctionFilter
+    filteredRows = correctionsFilter === 'all' ? rows.slice() : rows.filter((r) => r.correction_status === correctionsFilter)
+    target.querySelectorAll('[data-correction-filter]').forEach((b) => b.classList.toggle('active', b.dataset.correctionFilter === correctionsFilter))
+    applyTable(filteredRows, 1)
+  }))
   const searchInput = target.querySelector('[data-student-search]')
   if (searchInput) {
     searchInput.addEventListener('input', () => {
       const keyword = searchInput.value.trim().toLowerCase()
-      const visibleRows = keyword
-        ? rows.filter((row) => (row.real_name || '').toLowerCase().includes(keyword) || (row.student_no || '').toLowerCase().includes(keyword))
-        : rows
-      const tableWrap = target.querySelector('.data-table-wrap')
-      tableWrap.outerHTML = renderTable(visibleRows)
-      bindTableEvents(visibleRows)
+      filteredRows = keyword ? rows.filter((row) => (row.real_name || '').toLowerCase().includes(keyword) || (row.student_no || '').toLowerCase().includes(keyword)) : rows.slice()
+      applyTable(filteredRows, 1)
     })
   }
 }
@@ -586,6 +852,274 @@ async function cleanupClassEnrollments(classId) {
   await loadSection()
 }
 
+
+// ===== 老师移动端作业发布（仅限自己班级） =====
+async function getClassStudents(classId) {
+  const { data, error } = await supabase
+    .from('student_class_enrollments')
+    .select('student_id, students(id, real_name, student_no, grade, campus_id, status, deleted_at)')
+    .eq('class_id', classId)
+    .eq('is_current', true)
+  logSupabaseResult('teacher.classStudents', data, error)
+  if (error) return []
+  return (data || []).map((item) => item.students).filter((s) => s && s.status === 'active' && !s.deleted_at)
+}
+
+async function openTeacherHomeworkForm() {
+  const modal = document.createElement('div')
+  modal.className = 'modal-backdrop'
+  modal.dataset.teacherHwModal = 'true'
+  modal.innerHTML = '<div class="modal"><div class="modal-heading"><div><p class="eyebrow">学习进度</p><h2>发布作业</h2></div><button class="icon-button" type="button" title="关闭" data-close-teacher-hw>×</button></div><div class="loading-state">正在读取班级...</div></div>'
+  document.body.append(modal)
+  modal.querySelector('[data-close-teacher-hw]').addEventListener('click', () => modal.remove())
+  const classes = await getTeacherClasses()
+  if (!classes.length) {
+    modal.querySelector('.modal').innerHTML = '<div class="modal-heading"><div><p class="eyebrow">学习进度</p><h2>发布作业</h2></div><button class="icon-button" type="button" title="关闭" data-close-teacher-hw>×</button></div><div class="error-state"><strong>暂无任教班级</strong><p>请联系管理员分配班级后再发布作业。</p></div>'
+    modal.querySelector('[data-close-teacher-hw]').addEventListener('click', () => modal.remove())
+    return
+  }
+  const classOptions = classes.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.campuses?.name || '')} · ${escapeHtml(c.name)} · ${escapeHtml(c.grade || '')}</option>`).join('')
+  modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">学习进度</p><h2>发布作业</h2></div><button class="icon-button" type="button" title="关闭" data-close-teacher-hw>×</button></div><form data-teacher-hw-form><div class="form-grid"><label>班级 <span>*</span><select name="class_id" data-thw-class required>${classOptions}</select></label><label>学生 <span>*</span><select name="student_id" data-thw-student required><option value="">请选择学生</option></select></label><label>科目<input name="subject" maxlength="50" placeholder="例如：数学" /></label><label>作业日期 <span>*</span><input name="homework_date" type="date" required value="${todayInputValue()}" /></label><label>到期日期<input name="due_date" type="date" /></label><label class="full-width">标题 <span>*</span><input name="title" required maxlength="150" /></label><label class="full-width">内容<textarea name="content" rows="4"></textarea></label></div><div class="form-error" data-teacher-hw-error></div><div class="modal-actions"><button class="secondary-button" type="button" data-close-teacher-hw>取消</button><button class="primary-button" type="submit">发布作业</button></div></form>`
+  modal.querySelectorAll('[data-close-teacher-hw]').forEach((button) => button.addEventListener('click', () => modal.remove()))
+  const classSelect = modal.querySelector('[data-thw-class]')
+  const studentSelect = modal.querySelector('[data-thw-student]')
+  const loadStudents = async () => {
+    if (!classSelect.value) return
+    studentSelect.innerHTML = '<option value="">正在读取学生...</option>'
+    const students = await getClassStudents(classSelect.value)
+    studentSelect.innerHTML = students.length
+      ? `<option value="">请选择学生</option>${students.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.real_name)}${s.grade ? ` · ${escapeHtml(s.grade)}` : ''}${s.student_no ? `（${escapeHtml(s.student_no)}）` : ''}</option>`).join('')}`
+      : '<option value="">该班暂无学生</option>'
+  }
+  classSelect.addEventListener('change', loadStudents)
+  await loadStudents()
+  modal.querySelector('[data-teacher-hw-form]').addEventListener('submit', saveTeacherHomework)
+}
+
+async function saveTeacherHomework(event) {
+  event.preventDefault()
+  const formElement = event.currentTarget
+  const form = new FormData(formElement)
+  const modal = formElement.closest('[data-teacher-hw-modal]')
+  const button = formElement.querySelector('button[type="submit"]')
+  const errorTarget = formElement.querySelector('[data-teacher-hw-error]')
+  button.disabled = true
+  button.textContent = '发布中...'
+  errorTarget.textContent = ''
+  const classId = form.get('class_id')
+  const studentId = form.get('student_id')
+  if (!classId || !studentId) {
+    errorTarget.textContent = '请选择班级和学生。'
+    button.disabled = false
+    button.textContent = '发布作业'
+    return
+  }
+  const classObj = teacherClassCache.find((c) => c.id === classId) || {}
+  if (!classObj.id || classObj.status !== 'active') {
+    errorTarget.textContent = '该班级已停用或归档，不能新增作业'
+    button.disabled = false
+    button.textContent = '发布作业'
+    return
+  }
+  const homeworkId = crypto.randomUUID()
+  const payload = { id: homeworkId, organization_id: appContext.organization.id, campus_id: classObj.campus_id, class_id: classId, student_id: studentId, subject: form.get('subject').trim() || null, title: form.get('title').trim(), content: form.get('content').trim() || null, homework_date: form.get('homework_date'), due_date: form.get('due_date') || null, created_by: appContext.user.id, status: 'active' }
+  const { data, error } = await supabase.from('homework_assignments').insert(payload)
+  logSupabaseResult('teacher.homework.create', data, error)
+  if (error) {
+    errorTarget.textContent = error.message || '发布失败，请稍后重试。'
+    button.disabled = false
+    button.textContent = '发布作业'
+    return
+  }
+  const { error: recordError } = await supabase.from('student_homework_records').insert({ id: crypto.randomUUID(), homework_id: homeworkId, student_id: studentId, completion_status: 'not_started', recorded_by: appContext.user.id })
+  logSupabaseResult('teacher.homework.record.create', null, recordError)
+  if (recordError) {
+    errorTarget.textContent = `作业已保存，但完成记录创建失败：${recordError.message || '请稍后重试。'}`
+    button.disabled = false
+    button.textContent = '发布作业'
+    return
+  }
+  modal.remove()
+  showToast('作业发布成功')
+  await loadSection()
+}
+
+
+
+// ===== 新增教师（管理员后台创建账号，走 Edge Function create-teacher）=====
+async function openTeacherForm() {
+  const modal = document.createElement('div')
+  modal.className = 'modal-backdrop'
+  modal.dataset.teacherModal = 'true'
+  modal.innerHTML = '<div class="modal"><div class="modal-heading"><div><p class="eyebrow">团队成员</p><h2>新增教师</h2></div><button class="icon-button" type="button" title="关闭" data-close-teacher-modal>×</button></div><div class="loading-state">正在读取校区与班级...</div></div>'
+  document.body.append(modal)
+  modal.querySelector('[data-close-teacher-modal]').addEventListener('click', () => modal.remove())
+  const [{ data: campuses, error: cErr }, { data: classes, error: kErr }] = await Promise.all([
+    supabase.from('campuses').select('id, name').eq('organization_id', appContext.organization.id).order('name'),
+    supabase.from('classes').select('id, name, grade, campus_id').eq('organization_id', appContext.organization.id).eq('status', 'active').order('name')
+  ])
+  if (cErr || kErr) {
+    modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">团队成员</p><h2>新增教师</h2></div><button class="icon-button" type="button" title="关闭" data-close-teacher-modal>×</button></div><div class="error-state"><strong>无法读取数据</strong><p>请稍后重试。</p></div>`
+    modal.querySelector('[data-close-teacher-modal]').addEventListener('click', () => modal.remove())
+    return
+  }
+  const campusOptions = (campuses || []).map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('')
+  const classCheckbox = (classList) => classList.map((c) => `<label class="teacher-class-check"><input type="checkbox" name="class_ids" value="${escapeHtml(c.id)}" /> ${escapeHtml(c.name)} · ${escapeHtml(c.grade || '')}</label>`).join('')
+  modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">团队成员</p><h2>新增教师</h2></div><button class="icon-button" type="button" title="关闭" data-close-teacher-modal>×</button></div><form data-teacher-form><div class="form-grid"><label>姓名 <span>*</span><input name="real_name" required maxlength="50" /></label><label>手机号（登录账号） <span>*</span><input name="phone" type="tel" required maxlength="20" placeholder="例如：13800138000" /></label><label>初始密码 <span>*</span><input name="password" type="password" required minlength="6" autocomplete="new-password" /></label><label>所属校区 <span>*</span><select name="campus_id" required>${campusOptions}</select></label><label class="full-width">分配班级（可多选）</label></div><div class="teacher-class-picker full-width">${classCheckbox(classes || [])}${(classes || []).length ? '' : '<p class="muted">暂无可分配班级</p>'}</div><div class="form-error" data-teacher-form-error></div><div class="modal-actions"><button class="secondary-button" type="button" data-close-teacher-modal>取消</button><button class="primary-button" type="submit">创建教师</button></div></form>`
+  modal.querySelectorAll('[data-close-teacher-modal]').forEach((button) => button.addEventListener('click', () => modal.remove()))
+  modal.querySelector('[data-teacher-form]').addEventListener('submit', saveTeacher)
+}
+
+async function saveTeacher(event) {
+  event.preventDefault()
+  const formElement = event.currentTarget
+  const form = new FormData(formElement)
+  const modal = formElement.closest('[data-teacher-modal]')
+  const button = formElement.querySelector('button[type="submit"]')
+  const errorTarget = formElement.querySelector('[data-teacher-form-error]')
+  button.disabled = true
+  button.textContent = '创建中...'
+  errorTarget.textContent = ''
+  const payload = {
+    real_name: form.get('real_name').trim(),
+    phone: form.get('phone').trim(),
+    password: form.get('password'),
+    campus_id: form.get('campus_id'),
+    class_ids: form.getAll('class_ids')
+  }
+  if (!payload.real_name || !payload.phone || !payload.password) {
+    errorTarget.textContent = '姓名、手机号、初始密码为必填。'
+    button.disabled = false
+    button.textContent = '创建教师'
+    return
+  }
+  const { data, error } = await supabase.functions.invoke('create-teacher', { body: payload })
+  logSupabaseResult('teacher.create', data, error)
+  if (error) {
+    errorTarget.textContent = (data?.error) || error.message || '创建失败，请稍后重试。'
+    button.disabled = false
+    button.textContent = '创建教师'
+    return
+  }
+  if (!data?.ok) {
+    errorTarget.textContent = data?.error || '创建失败，请稍后重试。'
+    button.disabled = false
+    button.textContent = '创建教师'
+    return
+  }
+  modal.remove()
+  showToast('教师账号已创建')
+  await loadSection()
+}
+
+// ===== 教师管理：编辑 / 校区调整 / 班级调整 / 停用 / 软删除 =====
+async function openTeacherEdit(member) {
+  const userId = member.user_id
+  const memberId = member.id
+  const modal = document.createElement('div')
+  modal.className = 'modal-backdrop'
+  modal.dataset.teacherEditModal = 'true'
+  modal.dataset.memberId = memberId || ''
+  modal.dataset.userId = userId || ''
+  modal.innerHTML = '<div class="modal"><div class="modal-heading"><div><p class="eyebrow">团队成员</p><h2>编辑教师</h2></div><button class="icon-button" type="button" title="关闭" data-close-teacher-edit>×</button></div><div class="loading-state">正在读取数据...</div></div>'
+  document.body.append(modal)
+  modal.querySelector('[data-close-teacher-edit]').addEventListener('click', () => modal.remove())
+  const [{ data: campuses, error: cErr }, { data: classes, error: kErr }, { data: campusMems }, { data: classTeachers }] = await Promise.all([
+    supabase.from('campuses').select('id, name').eq('organization_id', appContext.organization.id).order('name'),
+    supabase.from('classes').select('id, name, grade, campus_id').eq('organization_id', appContext.organization.id).eq('status', 'active').order('name'),
+    supabase.from('campus_members').select('campus_id').eq('user_id', userId),
+    supabase.from('class_teachers').select('class_id').eq('teacher_id', userId)
+  ])
+  if (cErr || kErr) {
+    modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">团队成员</p><h2>编辑教师</h2></div><button class="icon-button" type="button" title="关闭" data-close-teacher-edit>×</button></div><div class="error-state"><strong>无法读取数据</strong><p>请稍后重试。</p></div>`
+    modal.querySelector('[data-close-teacher-edit]').addEventListener('click', () => modal.remove())
+    return
+  }
+  const currentCampusId = campusMems?.[0]?.campus_id || ''
+  const currentClassIds = new Set((classTeachers || []).map((ct) => ct.class_id))
+  const status = member.status || 'active'
+  modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">团队成员</p><h2>编辑教师</h2></div><button class="icon-button" type="button" title="关闭" data-close-teacher-edit>×</button></div><form data-teacher-edit-form><div class="form-grid"><label>姓名 <span>*</span><input name="real_name" required maxlength="50" value="${escapeHtml(member.profiles?.real_name || '')}" /></label><label>手机号<input name="phone" maxlength="20" value="${escapeHtml(member.profiles?.phone || '')}" /></label><label>所属校区 <span>*</span><select name="campus_id" data-edit-campus required>${(campuses || []).map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === currentCampusId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}</select></label><label>状态<select name="status"><option value="active" ${status === 'active' ? 'selected' : ''}>正常</option><option value="disabled" ${status === 'disabled' ? 'selected' : ''}>停用</option><option value="archived" ${status === 'archived' ? 'selected' : ''}>已删除</option></select></label><label class="full-width">分配班级（可多选，仅显示所选校区）</label></div><div class="teacher-class-picker full-width" data-edit-class-picker></div><div class="form-error" data-teacher-edit-error></div><div class="modal-actions"><button class="secondary-button" type="button" data-close-teacher-edit>取消</button><button class="primary-button" type="submit">保存</button></div></form>`
+  modal.querySelectorAll('[data-close-teacher-edit]').forEach((button) => button.addEventListener('click', () => modal.remove()))
+  const campusSelect = modal.querySelector('[data-edit-campus]')
+  const picker = modal.querySelector('[data-edit-class-picker]')
+  const renderClasses = () => {
+    const campusId = campusSelect.value
+    const classList = (classes || []).filter((c) => c.campus_id === campusId)
+    picker.innerHTML = classList.length
+      ? classList.map((c) => `<label class="teacher-class-check"><input type="checkbox" name="class_ids" value="${escapeHtml(c.id)}" ${currentClassIds.has(c.id) ? 'checked' : ''} /> ${escapeHtml(c.name)} · ${escapeHtml(c.grade || '')}</label>`).join('')
+      : '<p class="muted">该校区暂无班级</p>'
+  }
+  renderClasses()
+  campusSelect.addEventListener('change', () => { picker.querySelectorAll('input[name="class_ids"]').forEach((i) => { i.checked = false }); renderClasses() })
+  modal.querySelector('[data-teacher-edit-form]').addEventListener('submit', saveTeacherEdit)
+}
+
+
+
+
+
+async function saveTeacherEdit(event) {
+  event.preventDefault()
+  const formElement = event.currentTarget
+  const form = new FormData(formElement)
+  const modal = formElement.closest('[data-teacher-edit-modal]')
+  const memberId = modal.dataset.memberId
+  const userId = modal.dataset.userId
+  const button = formElement.querySelector('button[type="submit"]')
+  const errorTarget = formElement.querySelector('[data-teacher-edit-error]')
+  button.disabled = true
+  button.textContent = '保存中...'
+  errorTarget.textContent = ''
+  const realName = form.get('real_name').trim()
+  const phone = form.get('phone').trim() || null
+  const status = form.get('status')
+  const campusId = form.get('campus_id')
+  const classIds = form.getAll('class_ids')
+  if (!realName || !campusId) { errorTarget.textContent = '姓名与所属校区为必填。'; button.disabled = false; button.textContent = '保存'; return }
+  // 1) profiles
+  const { error: pErr } = await supabase.from('profiles').update({ real_name: realName, phone }).eq('id', userId)
+  if (pErr) { errorTarget.textContent = `更新个人信息失败：${pErr.message}`; button.disabled = false; button.textContent = '保存'; return }
+  // 2) organization_members status
+  if (memberId) {
+    const { error: mErr } = await supabase.from('organization_members').update({ status }).eq('id', memberId)
+    if (mErr) { errorTarget.textContent = `更新教师状态失败：${mErr.message}`; button.disabled = false; button.textContent = '保存'; return }
+  }
+  // 3) campus_members：清旧 + 插新
+  const { error: cdErr } = await supabase.from('campus_members').delete().eq('user_id', userId)
+  if (cdErr) { errorTarget.textContent = `更新校区失败：${cdErr.message}`; button.disabled = false; button.textContent = '保存'; return }
+  const { error: ciErr } = await supabase.from('campus_members').insert({ campus_id: campusId, user_id: userId, campus_role: 'teacher' })
+  if (ciErr) { errorTarget.textContent = `更新校区失败：${ciErr.message}`; button.disabled = false; button.textContent = '保存'; return }
+  // 4) class_teachers：清旧 + 插新（无班级则只清）
+  const { error: kdErr } = await supabase.from('class_teachers').delete().eq('teacher_id', userId)
+  if (kdErr) { errorTarget.textContent = `更新任教班级失败：${kdErr.message}`; button.disabled = false; button.textContent = '保存'; return }
+  if (classIds.length) {
+    const { error: kiErr } = await supabase.from('class_teachers').insert(classIds.map((cl) => ({ class_id: cl, teacher_id: userId, is_primary: false })))
+    if (kiErr) { errorTarget.textContent = `更新任教班级失败：${kiErr.message}`; button.disabled = false; button.textContent = '保存'; return }
+  }
+  modal.remove()
+  showToast('教师信息已保存')
+  await loadSection()
+}
+
+
+
+async function toggleTeacherStatus(memberId, to) {
+  if (!window.confirm(to === 'active' ? '确定启用该教师吗？' : '确定停用该教师吗？停用后该教师将无法登录。')) return
+  const { error } = await supabase.from('organization_members').update({ status: to }).eq('id', memberId)
+  if (error) { showToast(error.message || '操作失败，请稍后重试。', 'error'); return }
+  showToast(to === 'active' ? '教师已启用' : '教师已停用')
+  await loadSection()
+}
+
+async function softDeleteTeacher(memberId) {
+  if (!window.confirm('确定删除该教师吗？将采用软删除，保留其历史教学数据，且该教师将无法登录。')) return
+  const { error } = await supabase.from('organization_members').update({ status: 'archived' }).eq('id', memberId)
+  if (error) { showToast(error.message || '删除失败，请稍后重试。', 'error'); return }
+  showToast('教师已删除（软删除，历史数据保留）')
+  await loadSection()
+}
+
+
 async function openHomeworkForm() {
   const modal = document.createElement('div')
   modal.className = 'modal-backdrop'
@@ -634,7 +1168,7 @@ async function saveHomework(event) {
     return
   }
   if (enrollment.classes?.status !== 'active') {
-    errorTarget.textContent = '该学生所在班级已停用或归档，不能发布作业。'
+    errorTarget.textContent = '该班级已停用或归档，不能新增作业'
     button.disabled = false
     button.textContent = '保存作业'
     return
@@ -663,6 +1197,73 @@ async function saveHomework(event) {
   await loadSection()
 }
 
+// ===== 作业批改（correction_records 增改）=====
+async function openCorrectionPanel(recordId, correctionId) {
+  const isEdit = Boolean(correctionId)
+  const modal = document.createElement('div')
+  modal.className = 'modal-backdrop'
+  modal.dataset.correctionModal = 'true'
+  modal.dataset.recordId = recordId || ''
+  modal.dataset.correctionId = correctionId || ''
+  modal.innerHTML = `<div class="modal"><div class="modal-heading"><div><p class="eyebrow">教学反馈</p><h2>${isEdit ? '编辑批改' : '批改作业'}</h2></div><button class="icon-button" type="button" title="关闭" data-close-correction>×</button></div><div class="loading-state">正在加载...</div></div>`
+  document.body.append(modal)
+  modal.querySelector('[data-close-correction]').addEventListener('click', () => modal.remove())
+  let correction = null
+  if (isEdit) {
+    const { data, error } = await supabase.from('correction_records').select('id, correction_status, score, rating, comment').eq('id', correctionId).maybeSingle()
+    logSupabaseResult('correction.load', data, error)
+    if (error) {
+      modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">教学反馈</p><h2>编辑批改</h2></div><button class="icon-button" type="button" title="关闭" data-close-correction>×</button></div><div class="error-state"><strong>无法读取批改</strong><p>${escapeHtml(error.message || '请稍后重试。')}</p></div>`
+      modal.querySelector('[data-close-correction]').addEventListener('click', () => modal.remove())
+      return
+    }
+    correction = data
+  }
+  const status = correction?.correction_status || 'pending'
+  modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">教学反馈</p><h2>${isEdit ? '编辑批改' : '批改作业'}</h2></div><button class="icon-button" type="button" title="关闭" data-close-correction>×</button></div><form data-correction-form><div class="form-grid"><label>批改状态<select name="correction_status"><option value="pending" ${status === 'pending' ? 'selected' : ''}>待批改</option><option value="corrected" ${status === 'corrected' ? 'selected' : ''}>已批改</option><option value="needs_revision" ${status === 'needs_revision' ? 'selected' : ''}>需订正</option></select></label><label>评分(0-100)<input name="score" type="number" min="0" max="100" step="0.5" value="${correction?.score ?? ''}" /></label><label class="full-width">评价<textarea name="rating" rows="2" placeholder="例如：优秀 / 还需加强">${escapeHtml(correction?.rating || '')}</textarea></label><label class="full-width">批改备注<textarea name="comment" rows="4" placeholder="填写具体订正意见">${escapeHtml(correction?.comment || '')}</textarea></label></div><div class="form-error" data-correction-error></div><div class="modal-actions"><button class="secondary-button" type="button" data-close-correction>取消</button><button class="primary-button" type="submit">保存批改</button></div></form>`
+  modal.querySelectorAll('[data-close-correction]').forEach((b) => b.addEventListener('click', () => modal.remove()))
+  modal.querySelector('[data-correction-form]').addEventListener('submit', saveCorrection)
+}
+
+async function saveCorrection(event) {
+  event.preventDefault()
+  const formElement = event.currentTarget
+  const form = new FormData(formElement)
+  const modal = formElement.closest('[data-correction-modal]')
+  const recordId = modal.dataset.recordId
+  const correctionId = modal.dataset.correctionId
+  const button = formElement.querySelector('button[type="submit"]')
+  const errorTarget = formElement.querySelector('[data-correction-error]')
+  button.disabled = true
+  button.textContent = '保存中...'
+  errorTarget.textContent = ''
+  const payload = {
+    correction_status: form.get('correction_status'),
+    score: form.get('score') ? Number(form.get('score')) : null,
+    rating: form.get('rating').trim() || null,
+    comment: form.get('comment').trim() || null,
+    corrected_at: new Date().toISOString(),
+    reviewer_id: appContext.user.id
+  }
+  let error
+  if (correctionId) {
+    ({ error } = await supabase.from('correction_records').update(payload).eq('id', correctionId))
+    logSupabaseResult('correction.update', null, error)
+  } else {
+    ({ error } = await supabase.from('correction_records').insert({ id: crypto.randomUUID(), homework_record_id: recordId, ...payload }))
+    logSupabaseResult('correction.create', null, error)
+  }
+  if (error) {
+    errorTarget.textContent = error.message || '保存失败，请稍后重试。'
+    button.disabled = false
+    button.textContent = '保存批改'
+    return
+  }
+  modal.remove()
+  showToast('批改已保存')
+  await loadSection()
+}
+
 async function openHomeworkDetail(homework) {
   const modal = document.createElement('div')
   modal.className = 'modal-backdrop'
@@ -674,7 +1275,14 @@ async function openHomeworkDetail(homework) {
   const { data: records, error: recordError } = await supabase.from('student_homework_records').select('id, student_id, completion_status, completed_at, note').eq('homework_id', homework.id).eq('student_id', homework.student_id).order('created_at', { ascending: false })
   logSupabaseResult('homework.detail.records', records, recordError)
   if (recordError) return renderHomeworkDetailError(modal, recordError)
-  renderHomeworkDetail(modal, homework, records || [])
+  let correction = null
+  const firstRecordId = records?.[0]?.id
+  if (firstRecordId) {
+    const { data: corrData, error: corrErr } = await supabase.from('correction_records').select('id, correction_status, score, rating, comment, corrected_at, reviewer_id, profiles(real_name)').eq('homework_record_id', firstRecordId).order('created_at', { ascending: false }).maybeSingle()
+    logSupabaseResult('homework.detail.correction', corrData, corrErr)
+    if (!corrErr && corrData) correction = corrData
+  }
+  renderHomeworkDetail(modal, homework, records || [], correction, firstRecordId || '')
 }
 
 function renderHomeworkDetailError(modal, error) {
@@ -682,11 +1290,22 @@ function renderHomeworkDetailError(modal, error) {
   modal.querySelector('[data-close-homework-detail]').addEventListener('click', () => modal.remove())
 }
 
-function renderHomeworkDetail(modal, homework, records) {
+function renderHomeworkDetail(modal, homework, records, correction = null, recordId = '') {
   const currentRecord = records[0] || null
-  modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">作业详情</p><h2>${escapeHtml(homework.title)}</h2><p class="muted">${escapeHtml(homework.students?.real_name || '未设置学生')} · ${escapeHtml(homework.subject || '综合')} · ${formatDate(homework.homework_date)}</p></div><button class="icon-button" type="button" title="关闭" data-close-homework-detail>×</button></div><div class="homework-stats"><div><strong>${records.length}</strong><span>完成记录</span></div><div><strong>${currentRecord ? completionStatusLabel[currentRecord.completion_status] || currentRecord.completion_status : '—'}</strong><span>当前状态</span></div></div><div class="homework-record-list">${records.length ? records.map((record) => `<div class="homework-record-row" data-record-id="${escapeHtml(record.id)}"><div><strong>${escapeHtml(homework.students?.real_name || '未设置姓名')}</strong><small>${escapeHtml(homework.students?.student_no || '')}</small></div><select data-completion-status><option value="not_started" ${record.completion_status === 'not_started' ? 'selected' : ''}>未开始</option><option value="partial" ${record.completion_status === 'partial' ? 'selected' : ''}>完成中</option><option value="completed" ${record.completion_status === 'completed' ? 'selected' : ''}>已完成</option><option value="late" ${record.completion_status === 'late' ? 'selected' : ''}>已完成（逾期）</option></select><span class="completion-time">${record.completed_at ? formatDate(record.completed_at) : '—'}</span><input data-record-note placeholder="备注" value="${escapeHtml(record.note || '')}" /><button class="secondary-button table-action" data-save-record>保存</button></div>`).join('') : '<div class="empty-state"><h3>暂无完成记录</h3></div>'}</div>`
+  const canCorrect = can('correct_homework')
+  const isLeft = homework?.students?.status === 'left' || Boolean(homework?.students?.deleted_at)
+  const readOnlyNote = isLeft ? '<div class="left-banner">该学生已离校，此记录仅用于历史查看，不能修改完成状态。</div>' : ''
+  const corrHtml = recordId && !isLeft
+    ? `<section class="detail-section"><div class="detail-section-heading"><div><p class="eyebrow">教学反馈</p><h3>作业批改</h3></div>${canCorrect ? `<button class="secondary-button table-action" data-edit-correction="${escapeHtml(correction?.id || '')}" data-record-id="${escapeHtml(recordId)}">${correction ? '编辑批改' : '去批改'}</button>` : ''}</div>${correction ? `<div class="homework-corr"><div class="detail-stats corr-stats"><div><strong>${correction.score ?? '—'}</strong><span>评分</span></div><div><strong>${statusBadge(correction.correction_status)}</strong><span>状态</span></div><div><strong>${correction.profiles?.real_name || '—'}</strong><span>批改老师</span></div><div><strong>${correction.corrected_at ? formatDate(correction.corrected_at) : '—'}</strong><span>批改时间</span></div></div>${correction.rating ? `<div class="corr-row"><span>评价</span><p>${escapeHtml(correction.rating)}</p></div>` : ''}${correction.comment ? `<div class="corr-row"><span>批改备注</span><p>${escapeHtml(correction.comment)}</p></div>` : ''}</div>` : '<div class="detail-empty">该作业尚未批改。</div>'}</section>`
+    : (recordId ? `<section class="detail-section"><div class="detail-section-heading"><div><p class="eyebrow">教学反馈</p><h3>作业批改</h3></div></div>${correction ? `<div class="homework-corr"><div class="detail-stats corr-stats"><div><strong>${correction.score ?? '—'}</strong><span>评分</span></div><div><strong>${statusBadge(correction.correction_status)}</strong><span>状态</span></div><div><strong>${correction.profiles?.real_name || '—'}</strong><span>批改老师</span></div><div><strong>${correction.corrected_at ? formatDate(correction.corrected_at) : '—'}</strong><span>批改时间</span></div></div>${correction.rating ? `<div class="corr-row"><span>评价</span><p>${escapeHtml(correction.rating)}</p></div>` : ''}${correction.comment ? `<div class="corr-row"><span>批改备注</span><p>${escapeHtml(correction.comment)}</p></div>` : ''}</div>` : '<div class="detail-empty">该作业尚未批改。</div>'}</section>` : '')
+  const recordHtml = records.length ? records.map((record) => {
+    const opts = ['not_started', 'partial', 'completed', 'late'].map((s) => `<option value="${s}" ${record.completion_status === s ? 'selected' : ''}>${completionStatusLabel[s]}</option>`).join('')
+    return `<div class="homework-record-row" data-record-id="${escapeHtml(record.id)}"><div><strong>${escapeHtml(homework.students?.real_name || '未设置姓名')}</strong><small>${escapeHtml(homework.students?.student_no || '')}</small></div>${isLeft ? `<span class="completion-status-readonly">${completionStatusLabel[record.completion_status] || record.completion_status}</span>` : `<select data-completion-status>${opts}</select>`}<span class="completion-time">${record.completed_at ? formatDate(record.completed_at) : '—'}</span>${isLeft ? '<span class="muted small">历史记录</span>' : `<input data-record-note placeholder="备注" value="${escapeHtml(record.note || '')}" /><button class="secondary-button table-action" data-save-record>保存</button>`}</div>`
+  }).join('') : '<div class="empty-state"><h3>暂无完成记录</h3></div>'
+  modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">作业详情</p><h2>${escapeHtml(homework.title)}</h2><p class="muted">${escapeHtml(homework.students?.real_name || '未设置学生')} · ${escapeHtml(homework.subject || '综合')} · ${formatDate(homework.homework_date)}</p></div><button class="icon-button" type="button" title="关闭" data-close-homework-detail>×</button></div>${readOnlyNote}<div class="homework-stats"><div><strong>${records.length}</strong><span>完成记录</span></div><div><strong>${currentRecord ? completionStatusLabel[currentRecord.completion_status] || currentRecord.completion_status : '—'}</strong><span>当前状态</span></div></div><div class="homework-record-list">${recordHtml}</div>${corrHtml}`
   modal.querySelector('[data-close-homework-detail]').addEventListener('click', () => modal.remove())
   modal.querySelectorAll('[data-save-record]').forEach((button) => button.addEventListener('click', () => saveHomeworkRecord(button.closest('[data-record-id]'))))
+  modal.querySelectorAll('[data-edit-correction]').forEach((button) => button.addEventListener('click', () => openCorrectionPanel(button.dataset.recordId, button.dataset.editCorrection)))
 }
 
 async function saveHomeworkRecord(row) {
