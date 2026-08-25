@@ -545,14 +545,21 @@ async function openHomeworkForm() {
   modal.innerHTML = '<div class="modal"><div class="modal-heading"><div><p class="eyebrow">学习进度</p><h2>新增作业</h2></div><button class="icon-button" type="button" title="关闭" data-close-homework-modal>×</button></div><div class="loading-state">正在读取学生...</div></div>'
   document.body.append(modal)
   modal.querySelector('[data-close-homework-modal]').addEventListener('click', () => modal.remove())
-  const { data: students, error } = await supabase.from('students').select('id, real_name, student_no, campus_id, campuses(name)').eq('organization_id', appContext.organization.id).is('deleted_at', null).neq('status', 'left').order('real_name')
+  const { data: students, error } = await supabase.from('students').select('id, real_name, student_no, campus_id, campuses(name), student_class_enrollments(class_id, is_current, classes(id, status))').eq('organization_id', appContext.organization.id).is('deleted_at', null).neq('status', 'left').order('real_name')
   logSupabaseResult('homework.form.students', students, error)
+  // 过滤掉当前班级为停用（disabled）/ 归档（archived）的学生，仅允许向 active 班级学生发布作业
+  // 未分配班级的学生保留显示，由保存时的班级校验兜底提示
+  const activeStudents = (students || []).filter((student) => {
+    const enrollment = (student.student_class_enrollments || []).find((item) => item.is_current)
+    if (!enrollment) return true
+    return enrollment.classes?.status === 'active'
+  })
   if (error) {
     modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">学习进度</p><h2>新增作业</h2></div><button class="icon-button" type="button" title="关闭" data-close-homework-modal>×</button></div><div class="error-state"><strong>无法读取学生</strong><p>${escapeHtml(error.message || '请稍后重试。')}</p></div>`
     modal.querySelector('[data-close-homework-modal]').addEventListener('click', () => modal.remove())
     return
   }
-  modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">学习进度</p><h2>新增作业</h2></div><button class="icon-button" type="button" title="关闭" data-close-homework-modal>×</button></div><form data-homework-form><div class="form-grid"><label>学生 <span>*</span><select name="student_id" required><option value="">请选择学生</option>${(students || []).map((student) => `<option value="${escapeHtml(student.id)}">${escapeHtml(student.real_name)}${student.student_no ? `（${escapeHtml(student.student_no)}）` : ''} · ${escapeHtml(student.campuses?.name || '未分配校区')}</option>`).join('')}</select></label><label>科目<input name="subject" maxlength="50" placeholder="例如：数学" /></label><label>作业日期 <span>*</span><input name="homework_date" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label><label>到期日期<input name="due_date" type="date" /></label><label class="full-width">标题 <span>*</span><input name="title" required maxlength="150" /></label><label class="full-width">内容<textarea name="content" rows="4"></textarea></label></div><div class="form-error" data-homework-form-error></div><div class="modal-actions"><button class="secondary-button" type="button" data-close-homework-modal>取消</button><button class="primary-button" type="submit">保存作业</button></div></form>`
+  modal.querySelector('.modal').innerHTML = `<div class="modal-heading"><div><p class="eyebrow">学习进度</p><h2>新增作业</h2></div><button class="icon-button" type="button" title="关闭" data-close-homework-modal>×</button></div><form data-homework-form><div class="form-grid"><label>学生 <span>*</span><select name="student_id" required><option value="">请选择学生</option>${(activeStudents || []).length ? (activeStudents || []).map((student) => `<option value="${escapeHtml(student.id)}">${escapeHtml(student.real_name)}${student.student_no ? `（${escapeHtml(student.student_no)}）` : ''} · ${escapeHtml(student.campuses?.name || '未分配校区')}</option>`).join('') : '<option value="" disabled>暂无可布置作业的在读学生（停用/归档班级学生已过滤）</option>'}</select></label><label>科目<input name="subject" maxlength="50" placeholder="例如：数学" /></label><label>作业日期 <span>*</span><input name="homework_date" type="date" required value="${new Date().toISOString().slice(0, 10)}" /></label><label>到期日期<input name="due_date" type="date" /></label><label class="full-width">标题 <span>*</span><input name="title" required maxlength="150" /></label><label class="full-width">内容<textarea name="content" rows="4"></textarea></label></div><div class="form-error" data-homework-form-error></div><div class="modal-actions"><button class="secondary-button" type="button" data-close-homework-modal>取消</button><button class="primary-button" type="submit">保存作业</button></div></form>`
   modal.querySelectorAll('[data-close-homework-modal]').forEach((button) => button.addEventListener('click', () => modal.remove()))
   modal.querySelector('[data-homework-form]').addEventListener('submit', saveHomework)
 }
@@ -569,10 +576,17 @@ async function saveHomework(event) {
   errorTarget.textContent = ''
   const studentId = form.get('student_id')
   // 从学生当前班级派生 class_id / campus_id（兼容旧结构，class_id 仍为 NOT NULL）
-  const { data: enrollment, error: enrollmentError } = await supabase.from('student_class_enrollments').select('class_id, campus_id').eq('student_id', studentId).eq('is_current', true).maybeSingle()
+  // 同时取回班级 status，用于校验仅允许向 active 班级发布作业
+  const { data: enrollment, error: enrollmentError } = await supabase.from('student_class_enrollments').select('class_id, campus_id, classes(id, status)').eq('student_id', studentId).eq('is_current', true).maybeSingle()
   logSupabaseResult('homework.enrollment', enrollment, enrollmentError)
   if (enrollmentError || !enrollment) {
     errorTarget.textContent = '该学生尚未分配班级，无法发布作业。'
+    button.disabled = false
+    button.textContent = '保存作业'
+    return
+  }
+  if (enrollment.classes?.status !== 'active') {
+    errorTarget.textContent = '该学生所在班级已停用或归档，不能发布作业。'
     button.disabled = false
     button.textContent = '保存作业'
     return
@@ -781,6 +795,25 @@ async function saveStudent(event) {
   const campusId = form.get('campus_id')
   const modal = formElement.closest('[data-student-modal]')
   const studentId = modal.dataset.studentId
+  // 学号占位预检：同机构下、剔除本人、非离校、未删除的学生中是否已占用该学号
+  if (payload.student_no) {
+    let noQuery = supabase
+      .from('students')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', appContext.organization.id)
+      .eq('student_no', payload.student_no)
+      .neq('status', 'left')
+      .is('deleted_at', null)
+    if (studentId) noQuery = noQuery.neq('id', studentId)
+    const { count: noUsed, error: noCheckError } = await noQuery
+    logSupabaseResult('students.no_check', { count: noUsed }, noCheckError)
+    if (!noCheckError && (noUsed || 0) > 0) {
+      errorTarget.textContent = '该学号已被在校学生使用'
+      button.disabled = false
+      button.textContent = '保存学生'
+      return
+    }
+  }
   let data
   let error
   if (studentId) {
@@ -794,7 +827,9 @@ async function saveStudent(event) {
     if (!error && classId) ({ error } = await createStudentEnrollment(generatedStudentId, classId, campusId))
   }
   if (error) {
-    errorTarget.textContent = error.message || '保存失败，请稍后重试。'
+    // 捕获数据库 unique 约束错误（学号重复），转换为用户可理解提示
+    const isDuplicate = error.code === '23505' || /duplicate key/i.test(error.message || '')
+    errorTarget.textContent = isDuplicate ? '该学号已被在校学生使用' : (error.message || '保存失败，请稍后重试。')
     button.disabled = false
     button.textContent = '保存学生'
     return
