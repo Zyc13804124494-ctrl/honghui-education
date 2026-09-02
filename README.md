@@ -1,21 +1,57 @@
-# 鸿慧教育学生作业管理工具
+# 鸿慧教育管理平台
 
-一个适合小学托管机构使用的轻量作业管理工具。支持学生名单管理、每日作业完成记录、老师批改记录、备注、搜索与年级筛选。
+基于 Vite + Supabase + PWA 的托管机构管理平台，覆盖校区、班级、学生、作业、考勤、批改与教师移动工作流。
 
-## 运行方式
+## 技术栈
+- 前端：Vite + 原生 JS（单页应用）
+- 数据：Supabase（PostgreSQL + Auth + Storage）
+- 服务端：Supabase Edge Functions（Deno）
+- PWA：manifest + Service Worker（离线缓存）
 
-1. 在 VS Code 中打开本文件夹。
-2. 打开终端，执行：
+## 本地开发
+1. 安装依赖：
+   ```bash
+   npm install
+   ```
+2. 配置环境变量（复制 `.env.example` 为 `.env.local` 并填写）：
+   ```
+   VITE_SUPABASE_URL=https://xxxx.supabase.co
+   VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+   ```
+3. 启动：
+   ```bash
+   npm run dev
+   ```
+4. 打开 http://localhost:5173
 
+## 环境变量
+| 变量 | 说明 |
+|---|---|
+| `VITE_SUPABASE_URL` | Supabase 项目地址 |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase Publishable Key（anon key，可暴露在客户端） |
+
+> ⚠️ `service_role key` 仅用于 Supabase Edge Functions（服务端 `Deno.env`），切勿写入任何 `VITE_*` 变量或前端代码。
+
+## 部署到 Vercel
+1. 将项目推送到 Git 仓库（GitHub/GitLab）。
+2. 在 Vercel 导入该仓库，框架自动识别为 Vite。
+3. 在 Vercel 项目 Settings → Environment Variables 配置：
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY`
+4. 部署配置已内置 `vercel.json`：
+   - Build Command：`npm run build`
+   - Output Directory：`dist`
+   - SPA rewrites 已配置（刷新不会 404）
+5. 部署完成后，将站点域名加入 Supabase 的 Authentication → URL Configuration（Site URL / Redirect URLs）。
+
+## Edge Functions 部署
 ```bash
-npm install
-npm run dev
+supabase functions deploy create-teacher
+supabase functions deploy login-email
+supabase functions deploy reset-teacher-password
 ```
 
-3. 根据终端提示打开本地地址（通常是 `http://localhost:5173`）。
+## PWA
+- `public/manifest.webmanifest`、`public/sw.js`、图标均在构建后输出到 `dist/`。
+- Service Worker 仅在 HTTPS（生产）生效，支持离线缓存与网络恢复自动更新。
 
-## 说明
-
-- 数据保存在当前浏览器的 `localStorage` 中，刷新页面不会丢失。
-- 点击作业状态可以循环切换状态；备注在输入完成后自动保存。
-- 项目为前端单页应用，无需配置数据库或后端服务。

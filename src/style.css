@@ -70,7 +70,7 @@ button, input { font: inherit; } button { cursor: pointer; border: 0; } svg { wi
 
 /* ===== 老师工作台 ===== */
 .teacher-strip { background: linear-gradient(115deg, #3d74dc, #659be8); }
-.teacher-quick-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+.teacher-quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
 .teacher-quick-card { min-height: 92px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: #fff; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; text-align: left; box-shadow: 0 9px 24px #2c466b08; }
 .teacher-quick-card .overview-icon { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; font-size: 17px; }
 .teacher-quick-card strong { font-size: 14px; }
@@ -78,7 +78,8 @@ button, input { font: inherit; } button { cursor: pointer; border: 0; } svg { wi
 .quick-primary .overview-icon { color: #c88743; background: #fff2df; }
 .quick-green .overview-icon { color: #2d916c; background: #eaf8f1; }
 .quick-blue .overview-icon { color: #3973de; background: #eff5ff; }
-.teacher-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
+.quick-coral .overview-icon { color: #8a5cc9; background: #f0eafc; }
+.teacher-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
 .teacher-stats div { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 .teacher-stats strong { display: block; color: var(--blue); font-size: 22px; }
 .teacher-stats span { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
@@ -117,10 +118,10 @@ button, input { font: inherit; } button { cursor: pointer; border: 0; } svg { wi
 .muted.small { margin: 0; font-size: 10px; }
 
 @media (max-width: 1050px) {
-  .teacher-quick-grid { grid-template-columns: repeat(3, 1fr); }
+  .teacher-quick-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 700px) {
-  .teacher-quick-grid { grid-template-columns: 1fr; }
+  .teacher-quick-grid { grid-template-columns: repeat(2, 1fr); }
   .teacher-quick-card { flex-direction: row; align-items: center; min-height: 64px; }
   .teacher-attend-cards { grid-template-columns: 1fr; }
   .teacher-attend-toolbar { grid-template-columns: 1fr; }
@@ -173,4 +174,148 @@ button, input { font: inherit; } button { cursor: pointer; border: 0; } svg { wi
 /* ===== 离校学生作业只读 ===== */
 .left-banner { margin-bottom: 14px; padding: 12px 14px; border: 1px solid #e2c9c9; border-radius: 8px; color: #9a6a6a; background: #fff5f5; font-size: 12px; }
 .completion-status-readonly { display: inline-block; padding: 6px 10px; border-radius: 6px; color: #687684; background: #f1f4f7; font-size: 12px; }
+
+
+/* ===== 批量导入学生 ===== */
+.batch-import-modal { width: min(100%, 720px); }
+.batch-import-body { margin-top: 4px; }
+.modal-desc { margin: 0 0 16px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.batch-file-label { display: block; padding: 18px; border: 1px dashed #b9c6d4; border-radius: 8px; color: #3973de; background: #f6f9ff; font-size: 13px; text-align: center; cursor: pointer; }
+.batch-file-label:hover { border-color: #82a9ef; background: #eef4ff; }
+.batch-file-label input { display: none; }
+.batch-template-hint { margin: 12px 0; color: #9aa4ad; font-size: 11px; }
+.batch-template-hint code { padding: 1px 5px; border-radius: 4px; background: #eef1f4; }
+.batch-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
+.batch-count { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; text-align: center; }
+.batch-count strong { display: block; font-size: 22px; color: var(--ink); }
+.batch-count span { color: var(--muted); font-size: 11px; }
+.batch-count.ok strong { color: #2d916c; }
+.batch-count.err strong { color: #bd6b6b; }
+.batch-error-list { margin-top: 16px; max-height: 260px; overflow: auto; border: 1px solid #f0f2f5; border-radius: 8px; background: #fff; }
+.batch-error-list h4 { margin: 0; padding: 12px 14px; border-bottom: 1px solid #f0f2f5; color: #bd6b6b; font-size: 12px; }
+.batch-error-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 14px; border-bottom: 1px solid #f5f7fa; font-size: 12px; }
+.batch-error-row span { color: #5e6c78; white-space: nowrap; }
+.batch-error-row em { color: #bd6b6b; font-style: normal; }
+@media (max-width: 700px) {
+  .batch-summary { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+}
+
+
+/* ===== 学生导出 ===== */
+.export-options { display: grid; gap: 10px; margin-top: 6px; }
+.export-option { min-height: 46px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: #fff; font-size: 13px; text-align: left; }
+.export-option:hover { border-color: #82a9ef; background: #eff5ff; color: #3973de; }
+.export-class-picker { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fafbfd; }
+.export-class-picker label { color: #687684; font-size: 12px; }
+.export-class-picker select { width: 100%; height: 42px; margin-top: 7px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: #fff; }
+.export-status { margin-top: 14px; color: #687684; font-size: 12px; }
+
+
+/* ===== 数据驾驶舱 ===== */
+.cockpit-section { margin-bottom: 22px; }
+.cockpit-title h3 { margin: 0; color: var(--ink); font-size: 16px; }
+.cockpit-title { margin-bottom: 12px; }
+.today-grid { grid-template-columns: repeat(4, 1fr); }
+.homework-stats-grid { grid-template-columns: repeat(2, 1fr); }
+.ops-grid { display: grid; grid-template-columns: 1fr 1.2fr 1.2fr; gap: 14px; }
+.big-number { font-size: 40px; font-weight: 700; color: var(--blue); padding: 10px 0 4px; }
+.cockpit-list { display: grid; gap: 6px; margin-top: 8px; max-height: 240px; overflow: auto; }
+.cockpit-list-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border: 1px solid #f0f2f5; border-radius: 7px; font-size: 12px; }
+.cockpit-list-row span { color: #5e6c78; }
+.cockpit-list-row strong { color: var(--blue); font-size: 14px; }
+@media (max-width: 1050px) {
+  .today-grid { grid-template-columns: repeat(3, 1fr); }
+  .ops-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 700px) {
+  .today-grid { grid-template-columns: repeat(2, 1fr); }
+  .ops-grid { grid-template-columns: 1fr; }
+}
+
+
+/* ===== 作业管理三级下钻 + 图片上传 ===== */
+[hidden] { display: none !important; }
+.detail-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cockpit-breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 14px 0; color: var(--muted); font-size: 13px; }
+.cockpit-breadcrumb strong { color: var(--ink); }
+.cockpit-breadcrumb .crumb-link { color: #3973de; background: none; border: none; padding: 0; font-size: 13px; cursor: pointer; }
+.cockpit-breadcrumb .crumb-link:hover { text-decoration: underline; }
+.crumb-sep { color: #c3ccd6; }
+.drill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.drill-card { display: flex; align-items: center; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; text-align: left; }
+.drill-card:hover { border-color: #82a9ef; box-shadow: 0 8px 20px #27364410; }
+.drill-card-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 9px; color: #3973de; background: #eef4ff; flex: none; }
+.drill-card-icon svg { width: 20px; height: 20px; }
+.drill-card-body { flex: 1; min-width: 0; }
+.drill-card-body strong, .drill-card-body small { display: block; }
+.drill-card-body strong { color: var(--ink); font-size: 14px; }
+.drill-card-body small { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.drill-card > svg { width: 16px; height: 16px; color: #b9c6d4; flex: none; }
+.drill-list { display: grid; gap: 8px; }
+.drill-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 9px; background: #fff; cursor: pointer; text-align: left; }
+.drill-row:hover { border-color: #82a9ef; background: #f8fbff; }
+.drill-row-main strong, .drill-row-main small { display: block; }
+.drill-row-main strong { color: var(--ink); font-size: 13px; }
+.drill-row-main small { margin-top: 3px; color: var(--muted); font-size: 11px; }
+.drill-row > svg { width: 16px; height: 16px; color: #b9c6d4; flex: none; }
+.homework-upload-actions { margin-top: 14px; }
+
+
+@media (max-width: 700px) {
+  .teacher-stats { grid-template-columns: repeat(2, 1fr); }
+  .homework-stats-grid { grid-template-columns: 1fr; }
+}
+
+
+/* ===== 班级管理分组 + 教师管理 ===== */
+.class-campus-group { margin-bottom: 20px; }
+.class-campus-heading { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
+.class-campus-heading strong { color: var(--ink); font-size: 15px; }
+.class-campus-heading span { color: var(--muted); font-size: 12px; }
+.teacher-manage-list { display: grid; gap: 8px; margin: 14px 0; }
+.teacher-manage-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.teacher-manage-info strong, .teacher-manage-info small { display: block; }
+.teacher-manage-info strong { color: var(--ink); font-size: 13px; }
+.teacher-manage-info small { margin-top: 3px; color: var(--muted); font-size: 11px; }
+.teacher-add-row { display: flex; gap: 10px; align-items: center; }
+.teacher-add-row select { flex: 1; height: 40px; padding: 0 11px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: #fff; }
+
+
+/* ===== 系统设置 ===== */
+.settings-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.settings-panel { padding: 20px; }
+.settings-actions { margin-top: 16px; }
+@media (min-width: 900px) {
+  .settings-grid { grid-template-columns: 1fr 1fr; }
+  .settings-panel:first-child { grid-column: 1 / -1; }
+}
+
+
+/* ===== 教师批改卡片 ===== */
+.teacher-corr-list { display: grid; gap: 10px; }
+.teacher-corr-card { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.teacher-corr-info { min-width: 0; flex: 1; }
+.teacher-corr-info strong, .teacher-corr-info small { display: block; }
+.teacher-corr-info strong { color: var(--ink); font-size: 13px; }
+.teacher-corr-info small { margin-top: 3px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.teacher-corr-tags { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.teacher-corr-actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; flex-shrink: 0; }
+@media (max-width: 700px) {
+  .teacher-corr-card { flex-wrap: wrap; }
+  .teacher-corr-actions { flex-direction: row; width: 100%; justify-content: flex-end; }
+}
+
+
+/* ===== 今日任务中心 ===== */
+.task-center { padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.task-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.task-item { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #f9fbfd; }
+.task-item strong, .task-item span { display: block; }
+.task-item strong { color: var(--blue); font-size: 22px; }
+.task-item span { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.task-alert-list { display: grid; gap: 8px; }
+.task-alert { padding: 10px 14px; border-radius: 8px; font-size: 12px; }
+.task-alert.warn { color: #c88743; background: #fff6e8; }
+.task-alert.danger { color: #bd6b6b; background: #fff0f0; }
+.task-alert.ok { color: #2d916c; background: #eaf8f1; }
 
