@@ -248,7 +248,7 @@ async function loadSection() {
     const queries = {
       campuses: ['campuses', 'id, name, code, address, contact_phone, status, created_at', 'created_at'],
       classes: ['classes', 'id, name, grade, school_year, status, campus_id, campuses(name)', 'created_at'],
-      teachers: ['organization_members', 'user_id, role, status, joined_at, profiles(real_name, phone)', 'joined_at'],
+      teachers: ['organization_members', 'id, user_id, role, status, joined_at, profiles(real_name, phone)', 'joined_at'],
       students: ['students', 'id, student_no, real_name, gender, birthday, grade, school_name, status, campus_id, health_note, internal_note, created_at, campuses(name), student_class_enrollments(id, class_id, campus_id, start_date, is_current, classes(id, name, grade, school_year))', 'created_at'],
       homework: ['homework_assignments', 'id, title, subject, content, homework_date, due_date, status, campus_id, class_id, student_id, created_by, created_at, students(real_name, student_no, status, deleted_at), student_homework_records(completion_status), profiles:created_by(real_name)', 'homework_date'],
       corrections: ['correction_records', 'id, correction_status, score, rating, comment, corrected_at, reviewer_id, profiles(real_name), student_homework_records(id, completion_status, homework_assignments(id, title, subject, homework_date, students(real_name, student_no), classes(id, name, campus_id)))', 'corrected_at']
@@ -1185,6 +1185,7 @@ async function saveTeacher(event) {
 async function openTeacherEdit(member) {
   const userId = member.user_id
   const memberId = member.id
+  if (!memberId || !userId) { showToast('无法编辑：该教师记录缺少有效标识（ID 为空），请先联系管理员修复数据。', 'error'); return }
   const modal = document.createElement('div')
   modal.className = 'modal-backdrop'
   modal.dataset.teacherEditModal = 'true'
@@ -1273,6 +1274,7 @@ async function saveTeacherEdit(event) {
 
 
 async function toggleTeacherStatus(memberId, to) {
+  if (!memberId) { showToast('无法操作：该教师记录缺少有效标识（ID 为空）。', 'error'); return }
   if (!window.confirm(to === 'active' ? '确定启用该教师吗？' : '确定停用该教师吗？停用后该教师将无法登录。')) return
   const { error } = await supabase.from('organization_members').update({ status: to }).eq('id', memberId)
   if (error) { showToast(error.message || '操作失败，请稍后重试。', 'error'); return }
@@ -1281,6 +1283,7 @@ async function toggleTeacherStatus(memberId, to) {
 }
 
 async function softDeleteTeacher(memberId) {
+  if (!memberId) { showToast('无法删除：该教师记录缺少有效标识（ID 为空），请先联系管理员修复数据。', 'error'); return }
   if (!window.confirm('确定删除该教师吗？将采用软删除，保留其历史教学数据，且该教师将无法登录。')) return
   const { error } = await supabase.from('organization_members').update({ status: 'archived' }).eq('id', memberId)
   if (error) { showToast(error.message || '删除失败，请稍后重试。', 'error'); return }
@@ -1308,6 +1311,7 @@ async function resetTeacherPasswordSubmit(event) {
   const userId = modal.dataset.userId
   const button = formElement.querySelector('button[type="submit"]')
   const errorTarget = formElement.querySelector('[data-reset-pwd-error]')
+  if (!userId) { errorTarget.textContent = '无法重置：该教师记录缺少有效用户标识（user_id 为空）。'; return }
   const password = form.get('password')
   if (!password || password.length < 6) { errorTarget.textContent = '新密码至少 6 位。'; return }
   if (password !== form.get('confirm')) { errorTarget.textContent = '两次输入的新密码不一致。'; return }
