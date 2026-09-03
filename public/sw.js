@@ -4,7 +4,7 @@
 //   - 静态资源：stale-while-revalidate（离线用缓存，联网后后台自动更新缓存）
 //   - 跨域请求（如 Supabase API / Edge Functions）：不拦截，保证数据实时
 
-const CACHE_NAME = 'honghui-edu-v1'
+const CACHE_NAME = 'honghui-edu-v2'
 const CORE_ASSETS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg', '/icon-maskable.svg']
 
 self.addEventListener('install', (event) => {

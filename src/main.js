@@ -27,6 +27,7 @@ let batchImportValidRows = []
 
 const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]))
 const formatDate = (value) => value ? new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(value)) : '—'
+const isValidUuid = (value) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 const roleLabel = { owner: '超级管理员', admin: '管理员', teacher: '老师' }
 
 // 统一权限矩阵：action -> 允许的角色
@@ -1185,7 +1186,7 @@ async function saveTeacher(event) {
 async function openTeacherEdit(member) {
   const userId = member.user_id
   const memberId = member.id
-  if (!memberId || !userId) { showToast('无法编辑：该教师记录缺少有效标识（ID 为空），请先联系管理员修复数据。', 'error'); return }
+  if (!memberId || !userId || !isValidUuid(memberId) || !isValidUuid(userId)) { showToast('无法编辑：该教师记录缺少有效标识（ID 为空），请先联系管理员修复数据。', 'error'); return }
   const modal = document.createElement('div')
   modal.className = 'modal-backdrop'
   modal.dataset.teacherEditModal = 'true'
@@ -1274,7 +1275,7 @@ async function saveTeacherEdit(event) {
 
 
 async function toggleTeacherStatus(memberId, to) {
-  if (!memberId) { showToast('无法操作：该教师记录缺少有效标识（ID 为空）。', 'error'); return }
+  if (!memberId || !isValidUuid(memberId)) { showToast('无法操作：教师标识无效，请刷新页面后重试。', 'error'); return }
   if (!window.confirm(to === 'active' ? '确定启用该教师吗？' : '确定停用该教师吗？停用后该教师将无法登录。')) return
   const { error } = await supabase.from('organization_members').update({ status: to }).eq('id', memberId)
   if (error) { showToast(error.message || '操作失败，请稍后重试。', 'error'); return }
@@ -1283,7 +1284,7 @@ async function toggleTeacherStatus(memberId, to) {
 }
 
 async function softDeleteTeacher(memberId) {
-  if (!memberId) { showToast('无法删除：该教师记录缺少有效标识（ID 为空），请先联系管理员修复数据。', 'error'); return }
+  if (!memberId || !isValidUuid(memberId)) { showToast('无法删除：教师标识无效，请刷新页面后重试。', 'error'); return }
   if (!window.confirm('确定删除该教师吗？将采用软删除，保留其历史教学数据，且该教师将无法登录。')) return
   const { error } = await supabase.from('organization_members').update({ status: 'archived' }).eq('id', memberId)
   if (error) { showToast(error.message || '删除失败，请稍后重试。', 'error'); return }
