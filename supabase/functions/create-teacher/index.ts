@@ -48,6 +48,31 @@ Deno.serve(async (req) => {
       const err = { error: '请选择所属校区', detail: `campus_id=${JSON.stringify(campusId)}` }
       console.log('[create-teacher] FAIL campus missing', JSON.stringify(err)); return json(400, err)
     }
+    // 3.5) 新增前检查手机号是否已注册（profiles.phone 唯一；organization_members.user_id -> profiles.id）
+    const { data: existingProfile, error: phoneCheckErr } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('phone', phone)
+      .maybeSingle()
+    console.log('[create-teacher] phoneCheck error:', phoneCheckErr ? JSON.stringify(phoneCheckErr) : 'null', 'existingProfileId:', existingProfile?.id || 'null')
+    if (phoneCheckErr) {
+      const err = { error: '检查手机号失败', detail: phoneCheckErr.message }
+      console.log('[create-teacher] FAIL phoneCheck', JSON.stringify(err)); return json(500, err)
+    }
+    if (existingProfile) {
+      const { data: existingMember } = await supabase
+        .from('organization_members')
+        .select('status')
+        .eq('user_id', existingProfile.id)
+        .eq('organization_id', organizationId)
+        .maybeSingle()
+      if (existingMember?.status === 'archived') {
+        const err = { error: '该手机号对应的教师账号已归档，请在已归档列表中恢复原教师账号，或使用其他手机号', detail: `phone=${JSON.stringify(phone)}` }
+        console.log('[create-teacher] FAIL phone archived', JSON.stringify(err)); return json(409, err)
+      }
+      const err = { error: '该手机号已注册，请使用其他手机号', detail: `phone=${JSON.stringify(phone)}` }
+      console.log('[create-teacher] FAIL phone exists', JSON.stringify(err)); return json(409, err)
+    }
     const virtualEmail = `${phone}@teacher.honghui.local`
     console.log('[create-teacher] virtualEmail:', virtualEmail)
     // 4) createUser —— 返回结构为 { data: { user }, error }，用户 id 为 data.user.id
