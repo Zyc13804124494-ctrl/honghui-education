@@ -24,6 +24,7 @@ let appContext = null
 let mobileMoreOpen = false
 let teacherClassCache = []
 let batchImportValidRows = []
+let teacherListFilter = 'active'
 
 const escapeHtml = (value = '') => String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]))
 const formatDate = (value) => value ? new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date(value)) : '—'
@@ -258,7 +259,7 @@ async function loadSection() {
     const builder = supabase.from(table).select(columns)
     if (table === 'organization_members' || table === 'students' || table === 'classes' || table === 'homework_assignments') {
       builder.eq('organization_id', appContext.organization.id)
-      if (table === 'organization_members') builder.eq('role', 'teacher').neq('status', 'archived')
+      if (table === 'organization_members') builder.eq('role', 'teacher').eq('status', teacherListFilter)
     }
     if (table === 'students') builder.is('deleted_at', null).neq('status', 'left')
     const { data, error } = await builder.order(order, { ascending: false })
@@ -712,13 +713,13 @@ function renderList(rows) {
   const config = {
     campuses: { headers: ['校区名称', '编码', '地址', '联系电话', '状态'], cells: (row) => [row.name, row.code, row.address || '未填写', row.contact_phone || '未填写', statusBadge(row.status)] },
     classes: { headers: ['班级名称', '年级', '所属校区', '学年', '状态', '操作'], cells: (row) => { const canEdit = can('edit_class'); const canDisable = can('disable_class'); const canArchive = can('archive_class'); const canCleanup = can('cleanup_class'); const canDelete = can('delete_class'); return [row.name, row.grade, row.campuses?.name || '—', row.school_year, statusBadge(row.status), `<div class="table-actions">${canEdit ? `<button class="secondary-button table-action" data-edit-class="${escapeHtml(row.id)}">编辑</button>` : ''}${canDisable && row.status !== 'disabled' ? `<button class="secondary-button table-action leave-action" data-disable-class="${escapeHtml(row.id)}">停用</button>` : ''}${canArchive && row.status !== 'archived' ? `<button class="secondary-button table-action" data-archive-class="${escapeHtml(row.id)}">归档</button>` : ''}${canCleanup ? `<button class="secondary-button table-action" data-cleanup-class="${escapeHtml(row.id)}">清理历史学生关系</button>` : ''}${canDelete ? `<button class="secondary-button table-action leave-action" data-delete-class="${escapeHtml(row.id)}">删除</button>` : ''}</div>`] } },
-    teachers: { headers: ['教师', '手机号', '状态', '加入时间', '操作'], cells: (row) => { const canManage = can('manage_teacher'); const memStatus = row.status; return [row.profiles?.real_name || '未设置姓名', row.profiles?.phone || '未填写', statusBadge(row.status), formatDate(row.joined_at), canManage ? `<div class="table-actions"><button class="secondary-button table-action" data-edit-teacher="${escapeHtml(row.id)}" data-teacher-user="${escapeHtml(row.user_id)}">编辑</button>${memStatus === 'disabled' ? `<button class="secondary-button table-action" data-toggle-teacher="${escapeHtml(row.id)}" data-to="active">启用</button>` : `<button class="secondary-button table-action leave-action" data-toggle-teacher="${escapeHtml(row.id)}" data-to="disabled">停用</button>`}<button class="secondary-button table-action leave-action" data-delete-teacher="${escapeHtml(row.id)}" data-teacher-user="${escapeHtml(row.user_id)}">删除</button><button class="secondary-button table-action" data-reset-teacher-password="${escapeHtml(row.user_id)}">重置密码</button></div>` : ''] } },
+    teachers: { headers: ['教师', '手机号', '状态', '加入时间', '操作'], cells: (row) => { const canManage = can('manage_teacher'); const memStatus = row.status; const action = !canManage ? '' : memStatus === 'archived' ? `<div class="table-actions"><button class="secondary-button table-action" data-restore-teacher="${escapeHtml(row.id)}">恢复</button></div>` : `<div class="table-actions"><button class="secondary-button table-action" data-edit-teacher="${escapeHtml(row.id)}" data-teacher-user="${escapeHtml(row.user_id)}">编辑</button>${memStatus === 'disabled' ? `<button class="secondary-button table-action" data-toggle-teacher="${escapeHtml(row.id)}" data-to="active">启用</button>` : `<button class="secondary-button table-action leave-action" data-toggle-teacher="${escapeHtml(row.id)}" data-to="disabled">停用</button>`}<button class="secondary-button table-action leave-action" data-delete-teacher="${escapeHtml(row.id)}" data-teacher-user="${escapeHtml(row.user_id)}">删除</button><button class="secondary-button table-action" data-reset-teacher-password="${escapeHtml(row.user_id)}">重置密码</button></div>`; return [row.profiles?.real_name || '未设置姓名', row.profiles?.phone || '未填写', statusBadge(row.status), formatDate(row.joined_at), action] } },
     students: { headers: ['学生姓名', '学号', '年级', '所属校区', '当前班级', '就读学校', '状态', '操作'], cells: (row) => { const enrollment = getCurrentEnrollment(row); const canEdit = can('edit_student'); const canLeave = can('leave_student'); return [row.real_name, row.student_no || '—', row.grade, row.campuses?.name || '—', enrollment?.classes?.name || '未分配', row.school_name || '未填写', statusBadge(row.status), `<div class="table-actions">${canEdit ? `<button class="secondary-button table-action" data-edit-student="${escapeHtml(row.id)}">编辑</button>` : ''}${canLeave ? `<button class="secondary-button table-action leave-action" data-leave-student="${escapeHtml(row.id)}">离校</button>` : ''}</div>`] } },
     homework: { headers: ['学生姓名', '学号', '作业名称', '科目', '发布日期', '完成状态', '状态', '操作'], cells: (row) => { const canDelete = can('delete_homework'); return [row.students?.real_name || '—', row.students?.student_no || '—', row.title, row.subject || '综合', formatDate(row.homework_date), completionStatusBadge(row.student_homework_records?.[0]?.completion_status), statusBadge(row.status), `<div class="table-actions"><button class="secondary-button table-action" data-view-homework="${escapeHtml(row.id)}">查看</button>${canDelete ? `<button class="secondary-button table-action leave-action" data-delete-homework="${escapeHtml(row.id)}">删除</button>` : ''}</div>`] } },
     corrections: { headers: ['作业', '学生', '批改状态', '评分', '评价', '批改老师', '批改时间', '操作'], cells: (row) => { const shr = row.student_homework_records; const hw = shr?.homework_assignments; const canCorrect = can('correct_homework'); return [hw?.title || '—', hw?.students?.real_name || '—', statusBadge(row.correction_status), row.score ?? '—', row.rating || '未填写', row.profiles?.real_name || '未设置姓名', formatDate(row.corrected_at), canCorrect ? `<div class="table-actions"><button class="secondary-button table-action" data-edit-correction="${escapeHtml(row.id)}" data-record-id="${escapeHtml(shr?.id || '')}">${row.correction_status === 'pending' ? '去批改' : '编辑'}</button></div>` : ''] } },
   }
   const table = config[activeSection]
-  const toolbarAction = (activeSection === 'students' && can('create_student')) ? '<button class="primary-button" data-add-student>新增学生</button><button class="secondary-button" data-batch-import-student>批量导入学生</button><button class="secondary-button" data-grade-promotion>批量升年级</button><button class="secondary-button" data-export-students>导出</button>' : (activeSection === 'students' && appContext.role === 'teacher') ? '<button class="secondary-button" data-export-students>导出我班学生</button>' : (activeSection === 'classes' && can('create_class')) ? '<button class="primary-button" data-add-class>新增班级</button>' : (activeSection === 'homework' && can('create_homework')) ? '<button class="primary-button" data-add-homework>新增作业</button>' : (activeSection === 'teachers' && can('manage_teacher')) ? '<button class="primary-button" data-add-teacher>新增教师</button>' : `<span class="read-only-tag">云端数据 · 只读列表</span>`
+  const toolbarAction = (activeSection === 'students' && can('create_student')) ? '<button class="primary-button" data-add-student>新增学生</button><button class="secondary-button" data-batch-import-student>批量导入学生</button><button class="secondary-button" data-grade-promotion>批量升年级</button><button class="secondary-button" data-export-students>导出</button>' : (activeSection === 'students' && appContext.role === 'teacher') ? '<button class="secondary-button" data-export-students>导出我班学生</button>' : (activeSection === 'classes' && can('create_class')) ? '<button class="primary-button" data-add-class>新增班级</button>' : (activeSection === 'homework' && can('create_homework')) ? '<button class="primary-button" data-add-homework>新增作业</button>' : (activeSection === 'teachers' && can('manage_teacher')) ? `${teacherListFilter === 'active' ? '<button class="primary-button" data-add-teacher>新增教师</button>' : ''}<button class="secondary-button" data-toggle-teacher-filter>${teacherListFilter === 'active' ? '查看已归档' : '查看当前'}</button>` : `<span class="read-only-tag">云端数据 · 只读列表</span>`
   const searchBox = activeSection === 'students' ? '<input class="list-search" type="search" data-student-search placeholder="搜索姓名 / 学号" />' : ''
   const PAGE_SIZE = 50
   let filteredRows = rows.slice()
@@ -765,6 +766,7 @@ function renderList(rows) {
     target.querySelectorAll('[data-toggle-teacher]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); toggleTeacherStatus(button.dataset.toggleTeacher, button.dataset.to) }))
     target.querySelectorAll('[data-delete-teacher]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); softDeleteTeacher(button.dataset.deleteTeacher) }))
     target.querySelectorAll('[data-reset-teacher-password]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); openResetPasswordModal(button.dataset.resetTeacherPassword) }))
+  target.querySelectorAll('[data-restore-teacher]').forEach((button) => button.addEventListener('click', (event) => { event.stopPropagation(); restoreTeacher(button.dataset.restoreTeacher) }))
     target.querySelectorAll('[data-student-id]').forEach((row) => row.addEventListener('click', () => openStudentDetail(visibleRows.find((item) => item.id === row.dataset.studentId))))
   }
   const correctionFilterBar = activeSection === 'corrections' ? `<div class="filter-tabs">${[['all', '全部'], ['pending', '待批改'], ['corrected', '已批改'], ['needs_revision', '需订正']].map(([key, label]) => `<button type="button" class="filter-tab ${correctionsFilter === key ? 'active' : ''}" data-correction-filter="${key}">${label}</button>`).join('')}</div>` : ''
@@ -776,6 +778,7 @@ function renderList(rows) {
   target.querySelector('[data-add-class]')?.addEventListener('click', () => openClassForm())
   target.querySelector('[data-add-homework]')?.addEventListener('click', () => { if (appContext.role === 'teacher') { openTeacherHomeworkForm() } else { openHomeworkForm() } })
   target.querySelector('[data-add-teacher]')?.addEventListener('click', () => openTeacherForm())
+  target.querySelector('[data-toggle-teacher-filter]')?.addEventListener('click', () => { teacherListFilter = teacherListFilter === 'active' ? 'archived' : 'active'; loadSection() })
   applyTable(filteredRows, 1)
   target.querySelectorAll('[data-correction-filter]').forEach((btn) => btn.addEventListener('click', () => {
     correctionsFilter = btn.dataset.correctionFilter
@@ -910,50 +913,13 @@ async function archiveClass(classId) {
   await loadSection()
 }
 
-async function deleteClass(classId) {
-  if (!window.confirm('确定删除该班级吗？删除后仅保留历史记录，班级将不再可选。')) return
-  // 删除前检查是否存在历史业务数据（这些表外键为 on delete restrict，有数据则无法删除）
-  // 先取该班级的作业 id、在读学生 id，用于检查间接关联表（student_homework_records / correction_records / student_fee_records）
-  const [{ data: classHomeworks }, { data: enrolledStudents }] = await Promise.all([
-    supabase.from('homework_assignments').select('id').eq('class_id', classId),
-    supabase.from('student_class_enrollments').select('student_id').eq('class_id', classId)
-  ])
-  const homeworkIds = (classHomeworks || []).map((item) => item.id)
-  const studentIds = (enrolledStudents || []).map((item) => item.student_id)
-  // 取该班级作业对应的完成记录 id（用于检查批改记录）
-  const { data: shrRecords } = homeworkIds.length ? await supabase.from('student_homework_records').select('id').in('homework_id', homeworkIds) : { data: [] }
-  const shrIds = (shrRecords || []).map((item) => item.id)
-  const [enrollmentResult, homeworkResult, shrResult, correctionResult, attendanceResult, feeResult] = await Promise.all([
-    supabase.from('student_class_enrollments').select('id', { count: 'exact', head: true }).eq('class_id', classId),
-    supabase.from('homework_assignments').select('id', { count: 'exact', head: true }).eq('class_id', classId),
-    homeworkIds.length ? supabase.from('student_homework_records').select('id', { count: 'exact', head: true }).in('homework_id', homeworkIds) : Promise.resolve({ count: 0, error: null }),
-    shrIds.length ? supabase.from('correction_records').select('id', { count: 'exact', head: true }).in('homework_record_id', shrIds) : Promise.resolve({ count: 0, error: null }),
-    supabase.from('student_attendance_records').select('id', { count: 'exact', head: true }).eq('class_id', classId),
-    studentIds.length ? supabase.from('student_fee_records').select('id', { count: 'exact', head: true }).in('student_id', studentIds) : Promise.resolve({ count: 0, error: null })
-  ])
-  logSupabaseResult('classes.delete.check.enrollments', enrollmentResult, enrollmentResult.error)
-  logSupabaseResult('classes.delete.check.homework', homeworkResult, homeworkResult.error)
-  logSupabaseResult('classes.delete.check.homework_records', shrResult, shrResult.error)
-  logSupabaseResult('classes.delete.check.corrections', correctionResult, correctionResult.error)
-  logSupabaseResult('classes.delete.check.attendance', attendanceResult, attendanceResult.error)
-  logSupabaseResult('classes.delete.check.fee', feeResult, feeResult.error)
-  const checkError = enrollmentResult.error || homeworkResult.error || shrResult.error || correctionResult.error || attendanceResult.error || feeResult.error
-  if (checkError) {
-    showToast(checkError.message || '检查班级记录失败，请稍后重试。', 'error')
-    return
-  }
-  const hasRecords = (enrollmentResult.count || 0) > 0 || (homeworkResult.count || 0) > 0 || (shrResult.count || 0) > 0 || (correctionResult.count || 0) > 0 || (attendanceResult.count || 0) > 0 || (feeResult.count || 0) > 0
-  if (hasRecords) {
-    showToast('该班级存在历史数据，建议停用', 'error')
-    return
-  }
-  const { data, error } = await supabase.from('classes').update({ status: 'archived' }).eq('id', classId).eq('organization_id', appContext.organization.id)
-  logSupabaseResult('classes.delete', data, error)
-  if (error) {
-    showToast(error.message || '删除失败，请稍后重试。', 'error')
-    return
-  }
-  showToast('班级已删除')
+async function deleteClass(classId, className = '') {
+  if (!classId || !isValidUuid(classId)) { showToast('无法删除：班级标识无效。', 'error'); return }
+  if (!window.confirm(`确定删除【${className || '该班级'}】吗？\n删除后将归档，历史数据全部保留，可随时恢复。`)) return
+  const { error } = await supabase.from('classes').update({ status: 'archived' }).eq('id', classId).eq('organization_id', appContext.organization.id)
+  logSupabaseResult('classes.delete', null, error)
+  if (error) { showToast(error.message || '删除失败，请稍后重试。', 'error'); return }
+  showToast('已归档，可在「已归档」列表中恢复。')
   await loadSection()
 }
 
@@ -1725,10 +1691,11 @@ async function renderHomeworkAdmin() {
 }
 
 // ===== 校区管理（owner/admin，软删除） =====
-async function renderCampusAdmin() {
+async function renderCampusAdmin(filter = 'active') {
   const target = document.querySelector('#section-content')
   const orgId = appContext.organization.id
-  const { data: campuses, error } = await supabase.from('campuses').select('id, name, code, address, contact_phone, status, created_at').eq('organization_id', orgId).order('created_at', { ascending: true })
+  const isArchived = filter === 'archived'
+  const { data: campuses, error } = await supabase.from('campuses').select('id, name, code, address, contact_phone, status, created_at').eq('organization_id', orgId).eq('status', filter).order('created_at', { ascending: true })
   logSupabaseResult('campus.admin.list', campuses, error)
   if (error) {
     target.innerHTML = `<div class="error-state"><strong>无法读取校区数据</strong><p>${escapeHtml(error.message || '请稍后重试。')}</p></div>`
@@ -1749,27 +1716,32 @@ async function renderCampusAdmin() {
   const canManage = can('manage_campus')
   const actionsFor = (c) => {
     if (!canManage) return ''
-    if (c.status === 'archived') return '<span class="muted small">已归档</span>'
+    if (isArchived) return `<div class="table-actions"><button class="secondary-button table-action" data-restore-campus="${escapeHtml(c.id)}">恢复</button></div>`
     const toggle = c.status === 'active'
       ? `<button class="secondary-button table-action leave-action" data-toggle-campus="${escapeHtml(c.id)}" data-to="disabled">停用</button>`
       : `<button class="secondary-button table-action" data-toggle-campus="${escapeHtml(c.id)}" data-to="active">启用</button>`
-    return `<div class="table-actions"><button class="secondary-button table-action" data-edit-campus="${escapeHtml(c.id)}">编辑</button>${toggle}<button class="secondary-button table-action leave-action" data-delete-campus="${escapeHtml(c.id)}">删除</button></div>`
+    return `<div class="table-actions"><button class="secondary-button table-action" data-edit-campus="${escapeHtml(c.id)}">编辑</button>${toggle}<button class="secondary-button table-action leave-action" data-delete-campus="${escapeHtml(c.id)}" data-delete-campus-name="${escapeHtml(c.name)}">删除</button></div>`
   }
   const rowsHtml = list.length
     ? list.map((c) => `<tr><td><strong>${escapeHtml(c.name)}</strong></td><td>${escapeHtml(c.address || '未填写')}</td><td>${statusBadge(c.status)}</td><td>${formatDate(c.created_at)}</td><td>${studentCounts[c.id] ?? 0}</td><td>${teacherCounts[c.id] ?? 0}</td><td>${actionsFor(c)}</td></tr>`).join('')
     : `<tr><td colspan="7"><div class="empty-state"><span class="empty-symbol">${icon('school')}</span><h3>暂无校区</h3><p>点击右上角「新增校区」创建第一个校区。</p></div></td></tr>`
-  target.innerHTML = `<div class="list-toolbar"><div><strong>${list.length}</strong><span>个校区</span></div>${canManage ? '<button class="primary-button" data-add-campus>新增校区</button>' : ''}</div><div class="data-table-wrap"><table class="data-table"><thead><tr><th>校区名称</th><th>地址</th><th>状态</th><th>创建时间</th><th>学生数量</th><th>教师数量</th><th>操作</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`
+  const filterToggle = `<button class="secondary-button" data-campus-filter="${isArchived ? 'active' : 'archived'}">${isArchived ? '查看当前' : '查看已归档'}</button>`
+
+  target.innerHTML = `<div class="list-toolbar"><div><strong>${list.length}</strong><span>${isArchived ? '个已归档校区' : '个校区'}</span></div>${filterToggle}${canManage && !isArchived ? '<button class="primary-button" data-add-campus>新增校区</button>' : ''}</div><div class="data-table-wrap"><table class="data-table"><thead><tr><th>校区名称</th><th>地址</th><th>状态</th><th>创建时间</th><th>学生数量</th><th>教师数量</th><th>操作</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`
+  target.querySelector('[data-campus-filter]')?.addEventListener('click', (e) => renderCampusAdmin(e.currentTarget.dataset.campusFilter))
   target.querySelector('[data-add-campus]')?.addEventListener('click', () => openCampusForm())
   target.querySelectorAll('[data-edit-campus]').forEach((btn) => btn.addEventListener('click', () => openCampusForm(btn.dataset.editCampus)))
   target.querySelectorAll('[data-toggle-campus]').forEach((btn) => btn.addEventListener('click', () => toggleCampusStatus(btn.dataset.toggleCampus, btn.dataset.to)))
-  target.querySelectorAll('[data-delete-campus]').forEach((btn) => btn.addEventListener('click', () => deleteCampus(btn.dataset.deleteCampus)))
+  target.querySelectorAll('[data-delete-campus]').forEach((btn) => btn.addEventListener('click', () => deleteCampus(btn.dataset.deleteCampus, btn.dataset.deleteCampusName)))
+  target.querySelectorAll('[data-restore-campus]').forEach((btn) => btn.addEventListener('click', () => restoreCampus(btn.dataset.restoreCampus)))
 }
 
 // ===== 班级管理（owner/admin，按校区分组，含教师管理） =====
-async function renderClassAdmin() {
+async function renderClassAdmin(filter = 'active') {
   const target = document.querySelector('#section-content')
   const orgId = appContext.organization.id
-  const { data: classes, error } = await supabase.from('classes').select('id, name, grade, school_year, status, campus_id, campuses(name)').eq('organization_id', orgId).order('name')
+  const isArchived = filter === 'archived'
+  const { data: classes, error } = await supabase.from('classes').select('id, name, grade, school_year, status, campus_id, campuses(name)').eq('organization_id', orgId).eq('status', filter).order('name')
   logSupabaseResult('class.admin.list', classes, error)
   if (error) {
     target.innerHTML = `<div class="error-state"><strong>无法读取班级数据</strong><p>${escapeHtml(error.message || '请稍后重试。')}</p></div>`
@@ -1796,22 +1768,52 @@ async function renderClassAdmin() {
   }
   const actionCell = (c) => {
     if (!canManage) return ''
-    if (c.status === 'archived') return '<span class="muted small">已归档</span>'
+    if (isArchived) return `<div class="table-actions"><button class="secondary-button table-action" data-restore-class="${escapeHtml(c.id)}">恢复</button></div>`
     const toggle = c.status === 'active'
       ? `<button class="secondary-button table-action leave-action" data-toggle-class="${escapeHtml(c.id)}" data-to="disabled">停用</button>`
       : `<button class="secondary-button table-action" data-toggle-class="${escapeHtml(c.id)}" data-to="active">启用</button>`
-    return `<div class="table-actions"><button class="secondary-button table-action" data-edit-class="${escapeHtml(c.id)}">编辑</button><button class="secondary-button table-action" data-class-teachers="${escapeHtml(c.id)}">教师</button>${toggle}<button class="secondary-button table-action leave-action" data-delete-class="${escapeHtml(c.id)}">删除</button></div>`
+    return `<div class="table-actions"><button class="secondary-button table-action" data-edit-class="${escapeHtml(c.id)}">编辑</button><button class="secondary-button table-action" data-class-teachers="${escapeHtml(c.id)}">教师</button>${toggle}<button class="secondary-button table-action leave-action" data-delete-class="${escapeHtml(c.id)}" data-delete-class-name="${escapeHtml(c.name)}">删除</button></div>`
   }
   const groupHtml = Array.from(groups.entries()).map(([campusName, rows]) => {
     const body = rows.map((c) => `<tr><td><strong>${escapeHtml(c.name)}</strong></td><td>${escapeHtml(c.grade)}</td><td>${statusBadge(c.status)}</td><td>${studentCounts[c.id] ?? 0}</td><td>${teacherCounts[c.id] ?? 0}</td><td>${actionCell(c)}</td></tr>`).join('')
     return `<div class="class-campus-group"><div class="class-campus-heading"><strong>${escapeHtml(campusName)}</strong><span>${rows.length} 个班级</span></div><table class="data-table"><thead><tr><th>班级名称</th><th>年级</th><th>状态</th><th>学生数量</th><th>教师数量</th><th>操作</th></tr></thead><tbody>${body}</tbody></table></div>`
   }).join('')
-  target.innerHTML = `<div class="list-toolbar"><div><strong>${list.length}</strong><span>个班级</span></div>${canManage ? '<button class="primary-button" data-add-class>新增班级</button>' : ''}</div>${list.length ? groupHtml : `<div class="empty-state"><span class="empty-symbol">${icon('book')}</span><h3>暂无班级</h3><p>点击右上角「新增班级」创建第一个班级。</p></div>`}`
+  const filterToggle = `<button class="secondary-button" data-class-filter="${isArchived ? 'active' : 'archived'}">${isArchived ? '查看当前' : '查看已归档'}</button>`
+  target.innerHTML = `<div class="list-toolbar"><div><strong>${list.length}</strong><span>${isArchived ? '个已归档班级' : '个班级'}</span></div>${filterToggle}${canManage && !isArchived ? '<button class="primary-button" data-add-class>新增班级</button>' : ''}</div>${list.length ? groupHtml : `<div class="empty-state"><span class="empty-symbol">${icon('book')}</span><h3>暂无班级</h3><p>点击右上角「新增班级」创建第一个班级。</p></div>`}`
+  target.querySelector('[data-class-filter]')?.addEventListener('click', (e) => renderClassAdmin(e.currentTarget.dataset.classFilter))
   target.querySelector('[data-add-class]')?.addEventListener('click', () => openClassForm())
   target.querySelectorAll('[data-edit-class]').forEach((btn) => btn.addEventListener('click', () => openClassForm(list.find((c) => c.id === btn.dataset.editClass))))
   target.querySelectorAll('[data-class-teachers]').forEach((btn) => btn.addEventListener('click', () => openClassTeachers(btn.dataset.classTeachers)))
   target.querySelectorAll('[data-toggle-class]').forEach((btn) => btn.addEventListener('click', () => toggleClassStatus(btn.dataset.toggleClass, btn.dataset.to)))
-  target.querySelectorAll('[data-delete-class]').forEach((btn) => btn.addEventListener('click', () => deleteClass(btn.dataset.deleteClass)))
+  target.querySelectorAll('[data-delete-class]').forEach((btn) => btn.addEventListener('click', () => deleteClass(btn.dataset.deleteClass, btn.dataset.deleteClassName)))
+  target.querySelectorAll('[data-restore-class]').forEach((btn) => btn.addEventListener('click', () => restoreClass(btn.dataset.restoreClass)))
+}
+
+async function restoreClass(classId) {
+  if (!classId || !isValidUuid(classId)) { showToast('无法恢复：班级标识无效。', 'error'); return }
+  const { error } = await supabase.from('classes').update({ status: 'active' }).eq('id', classId).eq('organization_id', appContext.organization.id)
+  logSupabaseResult('class.restore', null, error)
+  if (error) { showToast(error.message || '恢复失败，请稍后重试。', 'error'); return }
+  showToast('班级已恢复')
+  await loadSection()
+}
+
+async function restoreCampus(campusId) {
+  if (!campusId || !isValidUuid(campusId)) { showToast('无法恢复：校区标识无效。', 'error'); return }
+  const { error } = await supabase.from('campuses').update({ status: 'active' }).eq('id', campusId).eq('organization_id', appContext.organization.id)
+  logSupabaseResult('campus.restore', null, error)
+  if (error) { showToast(error.message || '恢复失败，请稍后重试。', 'error'); return }
+  showToast('校区已恢复')
+  await loadSection()
+}
+
+async function restoreTeacher(memberId) {
+  if (!memberId || !isValidUuid(memberId)) { showToast('无法恢复：教师标识无效。', 'error'); return }
+  const { error } = await supabase.from('organization_members').update({ status: 'active' }).eq('id', memberId)
+  logSupabaseResult('teacher.restore', null, error)
+  if (error) { showToast(error.message || '恢复失败，请稍后重试。', 'error'); return }
+  showToast('教师已恢复')
+  await loadSection()
 }
 
 async function toggleClassStatus(classId, toStatus) {
@@ -2044,21 +2046,13 @@ async function toggleCampusStatus(campusId, toStatus) {
   await loadSection()
 }
 
-async function deleteCampus(campusId) {
-  const [{ count: classCount }, { count: studentCount }, { count: memberCount }] = await Promise.all([
-    supabase.from('classes').select('id', { count: 'exact', head: true }).eq('campus_id', campusId).neq('status', 'archived'),
-    supabase.from('students').select('id', { count: 'exact', head: true }).eq('campus_id', campusId).is('deleted_at', null).neq('status', 'left'),
-    supabase.from('campus_members').select('campus_id', { count: 'exact', head: true }).eq('campus_id', campusId)
-  ])
-  const hasData = (classCount || 0) > 0 || (studentCount || 0) > 0 || (memberCount || 0) > 0
-  if (hasData) {
-    showToast('该校区存在历史数据，建议停用', 'error')
-    return
-  }
-  if (!window.confirm('确定删除该校区吗？删除后仅保留历史记录，校区将不再可选。')) return
-  const { error } = await supabase.from('campuses').update({ status: 'archived' }).eq('id', campusId)
+async function deleteCampus(campusId, campusName = '') {
+  if (!campusId || !isValidUuid(campusId)) { showToast('无法删除：校区标识无效。', 'error'); return }
+  if (!window.confirm(`确定删除【${campusName || '该校区'}】吗？\n删除后将归档，历史数据全部保留，可随时恢复。`)) return
+  const { error } = await supabase.from('campuses').update({ status: 'archived' }).eq('id', campusId).eq('organization_id', appContext.organization.id)
   logSupabaseResult('campus.delete', null, error)
-  showToast(error ? (error.message || '删除失败，请稍后重试。') : '校区已删除', error ? 'error' : 'success')
+  if (error) { showToast(error.message || '删除失败，请稍后重试。', 'error'); return }
+  showToast('已归档，可在「已归档」列表中恢复。')
   await loadSection()
 }
 
